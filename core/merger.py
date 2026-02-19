@@ -166,3 +166,67 @@ def _compute_section_totals(df, total_col):
                             df.at[idx, total_col] = val
                         break
 
+    # Passe 4 : Montant HT / TVA / Montant TTC (lignes total_line)
+    # Montant HT = somme de tous les section_headers
+    montant_ht = 0.0
+    for _, row in df.iterrows():
+        if row["row_type"] == "section_header":
+            val = row.get(total_col)
+            if val is not None:
+                try:
+                    montant_ht += float(val)
+                except (ValueError, TypeError):
+                    pass
+
+    tva_rate = 0.20
+    tva = montant_ht * tva_rate
+    montant_ttc = montant_ht + tva
+
+    # Affecter aux lignes total_line selon leur Désignation
+    for idx, row in df.iterrows():
+        if row["row_type"] == "total_line":
+            desig = str(row.get("Désignation", "")).strip().lower()
+            if "montant ht" in desig:
+                df.at[idx, total_col] = montant_ht
+            elif "tva" in desig:
+                df.at[idx, total_col] = tva
+            elif "montant ttc" in desig or "ttc" in desig:
+                df.at[idx, total_col] = montant_ttc
+
+    # Aussi calculer pour la colonne base Px_Tot_HT (estimation)
+    if total_col != "Px_Tot_HT":
+        # Déjà fait pour la colonne entreprise, faire aussi pour la base
+        _compute_ht_tva_ttc_base(df)
+
+
+def _compute_ht_tva_ttc_base(df):
+    """
+    Calcule Montant HT, TVA, TTC pour la colonne de base Px_Tot_HT.
+    """
+    montant_ht = 0.0
+    for _, row in df.iterrows():
+        if row["row_type"] == "section_header":
+            val = row.get("Px_Tot_HT")
+            if val is not None:
+                try:
+                    montant_ht += float(val)
+                except (ValueError, TypeError):
+                    pass
+
+    if montant_ht <= 0:
+        return
+
+    tva_rate = 0.20
+    tva = montant_ht * tva_rate
+    montant_ttc = montant_ht + tva
+
+    for idx, row in df.iterrows():
+        if row["row_type"] == "total_line":
+            desig = str(row.get("Désignation", "")).strip().lower()
+            if "montant ht" in desig:
+                df.at[idx, "Px_Tot_HT"] = montant_ht
+            elif "tva" in desig:
+                df.at[idx, "Px_Tot_HT"] = tva
+            elif "montant ttc" in desig or "ttc" in desig:
+                df.at[idx, "Px_Tot_HT"] = montant_ttc
+
