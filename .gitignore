@@ -1,0 +1,24 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+venv/
+.env
+
+# App data
+uploads/
+outputs/
+
+# Test files
+test_*.py
+test_*.txt
+excel_analysis*.txt
+conception_text.txt
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+Thumbs.db
+.DS_Store
