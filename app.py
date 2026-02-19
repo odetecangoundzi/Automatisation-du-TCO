@@ -14,7 +14,9 @@ Corrections production :
   UX-1  : taux TVA paramétrable
   UX-2  : validation du nom d'entreprise
   UX-3  : compteur matched corrigé (article/sub_section)
+  UX-4  : confirmation suppression entreprise
   UX-6  : export via BytesIO sans sauvegarde disque
+  ARCH-3/4 : config.py + logger.py
 """
 
 import re
@@ -27,27 +29,27 @@ from core.parser_tco import parse_tco
 from core.parser_dpgf import parse_dpgf
 from core.merger import merge_company_into_tco
 from core.exporter import export_tco
+from config import (
+    UPLOAD_DIR, ALLOWED_EXTENSIONS, MAX_FILE_SIZE_MB, MAX_COMPANIES,
+    COMPANY_NAME_MAX_LEN, TVA_OPTIONS, TVA_DEFAULT, APP_TITLE, APP_ICON
+)
+from logger import get_logger
 
+log = get_logger("app")
 
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
 
 st.set_page_config(
-    page_title="TCO Automator",
-    page_icon="📊",
+    page_title=APP_TITLE,
+    page_icon=APP_ICON,
     layout="wide",
     initial_sidebar_state="collapsed",
 )
 
-UPLOAD_DIR      = os.path.join(os.path.dirname(__file__), "uploads")
-ALLOWED_EXT     = {".xlsx"}
-MAX_FILE_MB     = 20
-MAX_COMPANIES   = 10          # SEC-2
-COMPANY_PATTERN = re.compile(r"^[A-Za-zÀ-ÖØ-öø-ÿ0-9 \-_&'\.]+$")  # UX-2
-TVA_OPTIONS     = {"5,5 %": 0.055, "10 %": 0.10, "20 %": 0.20}
-
 os.makedirs(UPLOAD_DIR, exist_ok=True)
+COMPANY_PATTERN = re.compile(r"^[A-Za-zÀ-ÖØ-öø-ÿ0-9 \-_&'\.]+$")
 
 
 # ---------------------------------------------------------------------------
@@ -55,76 +57,79 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 # ---------------------------------------------------------------------------
 
 def _safe_save(uploaded_file):
-    """
-    SEC-1 : Sauvegarde un fichier uploadé avec nom UUID sanitisé.
-    Retourne le chemin, ou None si erreur.
-    Supprime le fichier après parsing (appelé par le consommateur).
-    """
-    ext = os.path.splitext(uploaded_file.name)[1].lower()
-    if ext not in ALLOWED_EXT:
+    name = uploaded_file.name
+    ext  = os.path.splitext(name)[1].lower()
+    
+    if ext not in ALLOWED_EXTENSIONS:
         st.error(f"❌ Format non accepté : {ext}. Seul .xlsx est autorisé.")
+        log.warning("Upload refusé (extension) : %s", name)
         return None
-    if uploaded_file.size / (1024 * 1024) > MAX_FILE_MB:
-        st.error(f"❌ Fichier trop volumineux (> {MAX_FILE_MB} MB).")
+        
+    if uploaded_file.size / (1024 * 1024) > MAX_FILE_SIZE_MB:
+        st.error(f"❌ Fichier trop volumineux (> {MAX_FILE_SIZE_MB} MB).")
+        log.warning("Upload refusé (taille) : %s", name)
         return None
-    # Nom sécurisé : UUID + extension seulement
+
     safe_name = f"{uuid.uuid4().hex}{ext}"
     path = os.path.join(UPLOAD_DIR, safe_name)
-    with open(path, "wb") as f:
-        f.write(uploaded_file.getbuffer())
-    return path
+    try:
+        with open(path, "wb") as f:
+            f.write(uploaded_file.getbuffer())
+        log.info("Fichier sauvegardé temporairement : %s -> %s", name, safe_name)
+        return path
+    except Exception as e:
+        log.error("Erreur sauvegarde fichier : %s", e)
+        st.error("Erreur technique lors de la sauvegarde.")
+        return None
 
 
 def _validate_company_name(name):
-    """UX-2 : Valide le nom d'entreprise."""
     name = name.strip()
     if not name:
         return None, "Le nom ne peut pas être vide."
-    if len(name) > 60:
-        return None, "Nom trop long (max 60 caractères)."
+    if len(name) > COMPANY_NAME_MAX_LEN:
+        return None, f"Nom trop long (max {COMPANY_NAME_MAX_LEN} caractères)."
     if not COMPANY_PATTERN.match(name):
         return None, "Nom invalide (caractères spéciaux interdits)."
     return name, None
 
 
-def rebuild_merged_tco(tva_rate=0.20):
-    """
-    Reconstruit le TCO fusionné à partir du TCO de base et de toutes
-    les entreprises stockées. Appelée après chaque ajout/suppression.
-    """
+def rebuild_merged_tco(tva_rate=TVA_DEFAULT):
     if st.session_state.tco_df is None:
         return
+    
+    log.info("Reconstruction TCO. TVA=%.2f. Entreprises=%s", 
+             tva_rate, list(st.session_state.company_data.keys()))
+             
     merged     = st.session_state.tco_df.copy()
     all_alerts = []
+    
     for comp_name, comp_data in st.session_state.company_data.items():
         merged, merge_alerts = merge_company_into_tco(
             merged, comp_data["dpgf_df"], comp_name
         )
         all_alerts.extend(comp_data["parse_alerts"])
         all_alerts.extend(merge_alerts)
+        
     st.session_state.merged_df  = merged
     st.session_state.all_alerts = all_alerts
 
 
 def display_alerts(alerts, title="Alertes"):
-    """Affiche les alertes sous forme de badges + expander."""
     if not alerts:
         st.success("✅ Aucune anomalie détectée")
         return
+        
     counts = {}
     for a in alerts:
         t = a.get("type", "info")
         counts[t] = counts.get(t, 0) + 1
+        
     cols = st.columns(3)
-    with cols[0]:
-        if counts.get("error"):
-            st.error(f"🔴 {counts['error']} erreur(s)")
-    with cols[1]:
-        if counts.get("warning"):
-            st.warning(f"🟡 {counts['warning']} avertissement(s)")
-    with cols[2]:
-        if counts.get("info"):
-            st.info(f"🔵 {counts['info']} info(s)")
+    if counts.get("error"):   cols[0].error(f"🔴 {counts['error']} erreur(s)")
+    if counts.get("warning"): cols[1].warning(f"🟡 {counts['warning']} avertissement(s)")
+    if counts.get("info"):    cols[2].info(f"🔵 {counts['info']} info(s)")
+        
     with st.expander(f"📋 {title} — détail", expanded=False):
         for a in alerts:
             icon = {"error": "🔴", "warning": "🟡", "info": "🔵"}.get(a["type"], "ℹ️")
@@ -132,7 +137,6 @@ def display_alerts(alerts, title="Alertes"):
 
 
 def display_preview(df, title="Aperçu", n_rows=20):
-    """Aperçu d'un DataFrame (colonnes techniques masquées)."""
     hidden = {"Entete", "row_type", "original_row", "parent_code"}
     cols   = [c for c in df.columns if c not in hidden]
     st.write(f"**{title}** ({len(df)} lignes)")
@@ -171,10 +175,11 @@ defaults = {
     "tco_meta":      None,
     "merged_df":     None,
     "all_alerts":    [],
-    "company_data":  {},   # {name: {dpgf_df, parse_alerts, filename}}
+    "company_data":  {},
     "step":          1,
     "upload_counter":0,
-    "tva_rate":      0.20,
+    "tva_rate":      TVA_DEFAULT,
+    "confirm_remove":None,  # UX-4 : stocke le nom de l'entreprise à supprimer
 }
 for k, v in defaults.items():
     if k not in st.session_state:
@@ -185,7 +190,7 @@ for k, v in defaults.items():
 # Header + progress
 # ---------------------------------------------------------------------------
 
-st.markdown("<h1 class='main-title'>📊 TCO Automator</h1>", unsafe_allow_html=True)
+st.markdown(f"<h1 class='main-title'>{APP_ICON} {APP_TITLE}</h1>", unsafe_allow_html=True)
 st.markdown(
     "<p style='text-align:center;color:#666;'>"
     "Automatisez l'intégration des DPGF entreprises dans votre TCO"
@@ -193,7 +198,8 @@ st.markdown(
 )
 
 labels = ["1️⃣ TCO Modèle", "2️⃣ DPGF Entreprises", "3️⃣ Résultat & Export"]
-for i, (col, label) in enumerate(zip(st.columns(3), labels)):
+step_cols = st.columns(3)
+for i, (col, label) in enumerate(zip(step_cols, labels)):
     with col:
         if   st.session_state.step > i + 1:  st.success(label)
         elif st.session_state.step == i + 1: st.info(label)
@@ -215,7 +221,7 @@ if st.session_state.step >= 1:
 
     tco_file = st.file_uploader(
         "Charger le TCO modèle", type=["xlsx"], key="tco_upload",
-        help="Fichier DPGF LOT servant de base (ex: DPGF LOT 01)",
+        help="Fichier DPGF LOT servant de base",
     )
 
     if tco_file and st.session_state.tco_df is None:
@@ -227,22 +233,20 @@ if st.session_state.step >= 1:
                     st.session_state.tco_df      = tco_df
                     st.session_state.tco_meta    = meta
                     st.session_state.merged_df   = tco_df.copy()
+                    
                     info = meta["project_info"]
                     if info:
                         st.info(
                             f"📋 **Projet :** {info.get('projet','N/A')} — "
                             f"**Lot :** {info.get('lot','N/A')}"
                         )
-                    n_art = len(tco_df[tco_df["row_type"] == "article"])
-                    st.success(f"✅ TCO chargé — {len(tco_df)} lignes, {n_art} articles")
+                    st.success(f"✅ TCO chargé — {len(tco_df)} lignes")
                 except Exception as e:
+                    log.error("Erreur parsing TCO", exc_info=True)
                     st.error(f"❌ Erreur de lecture : {e}")
                 finally:
-                    # SEC-3 : supprimer immédiatement après lecture
-                    try:
-                        os.remove(path)
-                    except OSError:
-                        pass
+                    try: os.remove(path)
+                    except: pass
 
     if st.session_state.tco_df is not None:
         display_preview(st.session_state.tco_df, "Aperçu du TCO")
@@ -262,14 +266,11 @@ if st.session_state.step >= 2:
         unsafe_allow_html=True,
     )
 
-    # Sélecteur TVA (UX-1)
     col_tva, _ = st.columns([1, 3])
     with col_tva:
         tva_label = st.selectbox(
-            "Taux de TVA",
-            list(TVA_OPTIONS.keys()),
+            "Taux de TVA", list(TVA_OPTIONS.keys()),
             index=list(TVA_OPTIONS.values()).index(st.session_state.tva_rate),
-            help="Taux appliqué au calcul Montant TTC",
         )
         new_tva = TVA_OPTIONS[tva_label]
         if new_tva != st.session_state.tva_rate:
@@ -278,8 +279,25 @@ if st.session_state.step >= 2:
             st.rerun()
 
     st.divider()
+    
+    # UX-4 : Confirmation de suppression (Dialogue modal simulé)
+    if st.session_state.confirm_remove:
+        to_remove = st.session_state.confirm_remove
+        st.warning(f"⚠️ Voulez-vous vraiment supprimer **{to_remove}** ?")
+        col_y, col_n = st.columns([1, 5])
+        with col_y:
+            if st.button("✅ Oui, supprimer", type="primary"):
+                del st.session_state.company_data[to_remove]
+                st.session_state.confirm_remove = None
+                rebuild_merged_tco(st.session_state.tva_rate)
+                st.success(f"Entreprise {to_remove} supprimée.")
+                st.rerun()
+        with col_n:
+            if st.button("❌ Annuler"):
+                st.session_state.confirm_remove = None
+                st.rerun()
+        st.divider()
 
-    # --- Liste des entreprises importées ---
     n_companies = len(st.session_state.company_data)
     if n_companies:
         st.write(f"**{n_companies} / {MAX_COMPANIES} entreprise(s) importée(s) :**")
@@ -287,6 +305,7 @@ if st.session_state.step >= 2:
             comp   = st.session_state.company_data[comp_name]
             n_art  = len(comp["dpgf_df"][comp["dpgf_df"]["row_type"] == "article"])
             n_alrt = len(comp["parse_alerts"])
+            
             col_inf, col_btn = st.columns([4, 1])
             with col_inf:
                 st.markdown(
@@ -296,15 +315,12 @@ if st.session_state.step >= 2:
                     unsafe_allow_html=True,
                 )
             with col_btn:
-                if st.button("🗑️ Retirer", key=f"rm_{comp_name}",
-                             help=f"Supprimer {comp_name} et recalculer"):
-                    del st.session_state.company_data[comp_name]
-                    rebuild_merged_tco(st.session_state.tva_rate)
-                    st.success(f"✅ **{comp_name}** supprimée. TCO recalculé.")
+                # UX-4 : Déclenche la confirmation
+                if st.button("🗑️ Retirer", key=f"rm_{comp_name}"):
+                    st.session_state.confirm_remove = comp_name
                     st.rerun()
         st.divider()
 
-    # --- Formulaire ajout ---
     if n_companies >= MAX_COMPANIES:
         st.warning(f"⚠️ Limite de {MAX_COMPANIES} entreprises atteinte.")
     else:
@@ -314,13 +330,9 @@ if st.session_state.step >= 2:
             dpgf_file = st.file_uploader(
                 "Charger un DPGF entreprise", type=["xlsx"],
                 key=f"dpgf_{st.session_state.upload_counter}",
-                help="Fichier DPGF d'une entreprise",
             )
         with col2:
-            raw_name = st.text_input(
-                "Nom de l'entreprise", placeholder="Ex: MAB SUD-OUEST",
-                help="Lettres, chiffres, espaces, tirets, apostrophes uniquement",
-            )
+            raw_name = st.text_input("Nom de l'entreprise", placeholder="Ex: MAB SUD-OUEST")
 
         if dpgf_file and raw_name:
             company_name, name_err = _validate_company_name(raw_name)
@@ -335,14 +347,8 @@ if st.session_state.step >= 2:
                         with st.spinner(f"🔄 Traitement de {company_name}..."):
                             try:
                                 dpgf_df, parse_alerts = parse_dpgf(path)
-
-                                # UX-3 : compteur matched corrigé
-                                n_matched = len(
-                                    dpgf_df[dpgf_df["row_type"].isin(
-                                        ["article", "sub_section"]
-                                    )]
-                                )
-
+                                n_matched = len(dpgf_df[dpgf_df["row_type"].isin(["article", "sub_section"])])
+                                
                                 st.session_state.company_data[company_name] = {
                                     "dpgf_df":      dpgf_df,
                                     "parse_alerts": parse_alerts,
@@ -350,31 +356,19 @@ if st.session_state.step >= 2:
                                 }
                                 rebuild_merged_tco(st.session_state.tva_rate)
                                 st.session_state.upload_counter += 1
-
-                                st.success(
-                                    f"✅ **{company_name}** fusionnée — "
-                                    f"{n_matched} postes, {len(parse_alerts)} alerte(s)"
-                                )
-                                if parse_alerts:
-                                    display_alerts(parse_alerts, company_name)
+                                st.success(f"✅ **{company_name}** fusionnée — {n_matched} postes")
+                                if parse_alerts: display_alerts(parse_alerts, company_name)
                                 st.rerun()
                             except Exception as e:
+                                log.error("Erreur fusion DPGF %s", company_name, exc_info=True)
                                 st.error(f"❌ Erreur : {e}")
                             finally:
-                                # SEC-3 : supprimer le fichier immédiatement
-                                try:
-                                    os.remove(path)
-                                except OSError:
-                                    pass
+                                try: os.remove(path)
+                                except: pass
 
-    # --- Aperçu ---
     if st.session_state.company_data:
-        display_preview(
-            st.session_state.merged_df,
-            f"TCO fusionné ({n_companies} entreprise(s))",
-        )
+        display_preview(st.session_state.merged_df, f"TCO fusionné ({n_companies} entreprise(s))")
 
-    # --- Navigation ---
     col_nav1, col_nav2 = st.columns(2)
     with col_nav1:
         if st.session_state.company_data:
@@ -409,7 +403,7 @@ if st.session_state.step >= 3:
 
     merged = st.session_state.merged_df
 
-    # Statistiques
+    # Stats
     art_rows = merged[merged["row_type"] == "article"]
     montant_ht = None
     for _, row in merged.iterrows():
@@ -427,21 +421,17 @@ if st.session_state.step >= 3:
     with cols[0]: st.metric("📋 Articles",   len(art_rows))
     with cols[1]: st.metric("🏢 Entreprises", len(st.session_state.company_data))
     with cols[2]: st.metric("⚠️ Alertes",    len(st.session_state.all_alerts))
-    with cols[3]:
-        st.metric("💰 Montant HT",
-                  f"{montant_ht:,.2f} €" if montant_ht else "N/A")
+    with cols[3]: st.metric("💰 Montant HT", f"{montant_ht:,.2f} €" if montant_ht else "N/A")
 
     display_preview(merged, "TCO Final Consolidé", n_rows=50)
 
     if st.session_state.all_alerts:
         display_alerts(st.session_state.all_alerts, "Toutes les alertes")
 
-    # Retour Step 2
     if st.button("⬅️ Retour — Modifier les entreprises"):
         st.session_state.step = 2
         st.rerun()
 
-    # --- Export ---
     st.divider()
     from datetime import datetime
     timestamp  = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -450,11 +440,10 @@ if st.session_state.step >= 3:
     if st.button("📥 Exporter le TCO Final (.xlsx)", type="primary"):
         with st.spinner("🔄 Génération du fichier Excel..."):
             try:
-                # UX-6 : export via BytesIO, sans sauvegarde disque
                 buffer = export_tco(
                     st.session_state.merged_df,
                     st.session_state.tco_meta,
-                    output_path=None,          # → retourne BytesIO
+                    output_path=None,
                     alerts=st.session_state.all_alerts,
                 )
                 st.download_button(
@@ -465,13 +454,10 @@ if st.session_state.step >= 3:
                     type="primary",
                 )
                 st.success("✅ Fichier prêt au téléchargement.")
+                log.info("Export réussi : %s", filename)
             except Exception as e:
+                log.error("Erreur export Excel", exc_info=True)
                 st.error(f"❌ Erreur d'export : {e}")
 
-
-# ---------------------------------------------------------------------------
-# Footer
-# ---------------------------------------------------------------------------
-
 st.divider()
-st.caption("TCO Automator v2.0 — Python · Pandas · OpenPyXL · Streamlit | .xlsx uniquement")
+st.caption(f"{APP_TITLE} v{2.1} — TCO Automator")

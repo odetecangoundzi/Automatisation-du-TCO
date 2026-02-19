@@ -14,6 +14,10 @@ import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 
+from logger import get_logger
+
+log = get_logger(__name__)
+
 
 # ---------------------------------------------------------------------------
 # Constantes de style
@@ -75,7 +79,10 @@ def _auto_width(ws, min_width=8, max_width=40):
         max_len = min_width
         for cell in col_cells:
             if cell.value:
-                max_len = max(max_len, min(len(str(cell.value)) + 2, max_width))
+                # Truncate string representation to check length, avoid huge cells
+                val_str = str(cell.value)
+                line_len = max(len(line) for line in val_str.split('\n')) if '\n' in val_str else len(val_str)
+                max_len = max(max_len, min(line_len + 2, max_width))
         ws.column_dimensions[col_letter].width = max_len
 
 
@@ -101,25 +108,18 @@ def _get_row_style(row_type):
 def export_tco(merged_df, meta, output_path=None, alerts=None):
     """
     Exporte le TCO fusionné en fichier Excel formaté.
-
-    Args:
-        merged_df   : DataFrame fusionné
-        meta        : dict avec sheet_name, etc.
-        output_path : chemin de sauvegarde disque (optionnel)
-                      Si None, retourne un BytesIO
-        alerts      : liste d'alertes
-
-    Returns:
-        output_path si fourni, sinon un io.BytesIO prêt au téléchargement
     """
     if alerts is None:
         alerts = []
 
+    log.info("Début export Excel. Lignes=%d", len(merged_df))
+    
     wb = openpyxl.Workbook()
     ws = wb.active
     ws.title = meta.get("sheet_name", "TCO Final")
 
     companies = _detect_companies(merged_df)
+    log.debug("Entreprises détectées : %s", companies)
 
     # --- ROW 1 : Headers groupés ---
     ws.cell(row=1, column=2, value="Etudes")
@@ -175,7 +175,6 @@ def export_tco(merged_df, meta, output_path=None, alerts=None):
             alert_by_code.setdefault(code, []).append(alert)
 
     # --- ROWS 3+ : Données ---
-    # BUG-1 FIX : compteur indépendant pour éviter les trous d'index
     excel_row = 3
     for _, row in merged_df.iterrows():
         row_type = row["row_type"]
@@ -207,7 +206,6 @@ def export_tco(merged_df, meta, output_path=None, alerts=None):
             if fill:
                 cell.fill = fill
 
-        # Coloration d'alerte sur les articles uniquement
         if code and code in alert_by_code and row_type == "article":
             for alert in alert_by_code[code]:
                 alert_fill = _get_alert_fill(alert["color"])
@@ -220,18 +218,17 @@ def export_tco(merged_df, meta, output_path=None, alerts=None):
 
         excel_row += 1
 
-    # Freeze pane & auto-width
     ws.freeze_panes = "C3"
     _auto_width(ws)
-    ws.column_dimensions["B"].width = 55
+    ws.column_dimensions["B"].width = 55 # Force Désignation width
 
-    # Sauvegarde
+    log.info("Workbook prêt. Output_path=%s", output_path)
+
     if output_path:
         wb.save(output_path)
         wb.close()
         return output_path
     else:
-        # UX-6 : export via BytesIO (pas de sauvegarde disque)
         buffer = io.BytesIO()
         wb.save(buffer)
         wb.close()

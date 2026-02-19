@@ -11,6 +11,9 @@ import openpyxl
 import pandas as pd
 
 from core.utils import find_header_row, classify_row
+from logger import get_logger
+
+log = get_logger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -47,13 +50,15 @@ def parse_tco(filepath):
              Entete, row_type, original_row, parent_code]
         meta (dict) : project_info, header_row, sheet_name, filepath
     """
-    # PERF-4 : read_only=True pour économiser la mémoire
+    log.info("Lecture TCO : %s", filepath)
+
     wb = openpyxl.load_workbook(filepath, data_only=True, read_only=True)
     ws = wb.active
     sheet_name = ws.title
 
-    header_row = find_header_row(ws)
+    header_row   = find_header_row(ws)
     project_info = _extract_project_info(ws, header_row)
+    log.debug("En-tête trouvée ligne %d | projet=%s", header_row, project_info)
 
     rows = []
     current_section_code = ""
@@ -62,7 +67,6 @@ def parse_tco(filepath):
         ws.iter_rows(min_row=header_row + 1, values_only=True),
         start=header_row + 1,
     ):
-        # Colonnes : A=0, B=1, C=2, D=3, E=4, F=5, M=12
         if len(xl_row) < 6:
             continue
 
@@ -100,6 +104,12 @@ def parse_tco(filepath):
 
     wb.close()
     tco_df = pd.DataFrame(rows)
+    log.info(
+        "TCO parsé : %d lignes (%d articles, %d sections)",
+        len(tco_df),
+        len(tco_df[tco_df["row_type"] == "article"]),
+        len(tco_df[tco_df["row_type"] == "section_header"]),
+    )
 
     meta = {
         "project_info": project_info,

@@ -11,6 +11,10 @@ import openpyxl
 import pandas as pd
 
 from core.utils import find_header_row, classify_row
+from config import TOTAL_TOLERANCE_ABS, TOTAL_TOLERANCE_REL
+from logger import get_logger
+
+log = get_logger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -28,10 +32,6 @@ KEYWORDS = {
     "pm":         "pm",
 }
 
-# Tolérance : 10 centimes OU 0.1 % (selon ce qui est le plus grand)
-TOTAL_TOLERANCE_ABS = 0.10
-TOTAL_TOLERANCE_REL = 0.001
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -44,7 +44,6 @@ def _clean_numeric(value):
     """
     if value is None:
         return 0.0, ""
-
     if isinstance(value, (int, float)):
         return float(value), ""
 
@@ -52,17 +51,15 @@ def _clean_numeric(value):
     if not text:
         return 0.0, ""
 
-    # Mot-clé connu
     text_lower = text.lower().strip()
     for keyword, abbrev in KEYWORDS.items():
         if keyword in text_lower:
             return 0.0, abbrev
 
-    # Format français → nombre
     cleaned = text.replace(" ", "").replace("\u00a0", "").replace(",", ".")
-    match = re.search(r"-?\d+(?:\.\d+)?", cleaned)
+    match   = re.search(r"-?\d+(?:\.\d+)?", cleaned)
     if match:
-        number = float(match.group())
+        number    = float(match.group())
         remaining = re.sub(r"-?\d+(?:\.\d+)?", "", cleaned).strip()
         remaining = remaining.strip("()[]{}/ ")
         return number, remaining
@@ -71,9 +68,7 @@ def _clean_numeric(value):
 
 
 def _check_total_coherence(qu_val, pu_val, total_val, row_idx, code):
-    """
-    Vérifie que Qu × PU ≈ Total (BUG-4 : tolérance relative + absolue).
-    """
+    """Vérifie que Qu × PU ≈ Total (tolérance absolue ET relative)."""
     if qu_val and pu_val and total_val:
         try:
             expected = float(qu_val) * float(pu_val)
@@ -82,6 +77,10 @@ def _check_total_coherence(qu_val, pu_val, total_val, row_idx, code):
                 abs_diff = abs(expected - actual)
                 rel_diff = abs_diff / abs(actual)
                 if abs_diff > TOTAL_TOLERANCE_ABS and rel_diff > TOTAL_TOLERANCE_REL:
+                    log.warning(
+                        "Total incohérent ligne %d code=%s : %.2f × %.2f = %.2f ≠ %.2f",
+                        row_idx, code, qu_val, pu_val, expected, actual,
+                    )
                     return {
                         "type":    "error",
                         "color":   "red",
@@ -110,13 +109,14 @@ def parse_dpgf(filepath):
         dpgf_df (DataFrame) : DataFrame normalisé
         alerts  (list)      : liste d'alertes
     """
-    # PERF-4 : read_only=True pour économiser la mémoire
+    log.info("Lecture DPGF : %s", filepath)
+
     wb = openpyxl.load_workbook(filepath, data_only=True, read_only=True)
     ws = wb.active
 
     header_row = find_header_row(ws)
-    alerts = []
-    rows = []
+    alerts     = []
+    rows       = []
     current_section_code = ""
 
     for row_idx, xl_row in enumerate(
@@ -128,7 +128,7 @@ def parse_dpgf(filepath):
 
         code_raw   = xl_row[0]
         desig_raw  = xl_row[1]
-        cc_raw     = xl_row[2]   # Quantité (parfois "Cc" dans certains DPGF)
+        cc_raw     = xl_row[2]
         u          = xl_row[3]
         px_u_raw   = xl_row[4]
         px_tot_raw = xl_row[5]
@@ -145,7 +145,6 @@ def parse_dpgf(filepath):
 
         parent_code = current_section_code if row_type == "recap" else ""
 
-        # Normaliser les valeurs numériques
         if row_type in ("article", "sub_section"):
             qu_val,  qu_comment  = _clean_numeric(cc_raw)
             pu_val,  pu_comment  = _clean_numeric(px_u_raw)
@@ -156,29 +155,28 @@ def parse_dpgf(filepath):
             tot_val = px_tot_raw if isinstance(px_tot_raw, (int, float)) else 0.0
             qu_comment = pu_comment = tot_comment = ""
 
-        # Commentaire consolidé
-        comments   = [c for c in [qu_comment, pu_comment, tot_comment] if c]
+        comments    = [c for c in [qu_comment, pu_comment, tot_comment] if c]
         commentaire = "; ".join(comments) if comments else ""
 
-        # Alertes uniquement pour les articles
         if row_type == "article" and code_str:
             if qu_comment or pu_comment or tot_comment:
                 kw_found = any(
                     c.lower() in KEYWORDS or c.lower() in KEYWORDS.values()
                     for c in [qu_comment, pu_comment, tot_comment] if c
                 )
-                if kw_found:
-                    alerts.append({
-                        "type": "info", "color": "blue",
-                        "row": row_idx, "code": code_str,
-                        "message": f"Mot-clé détecté : {commentaire}",
-                    })
-                else:
-                    alerts.append({
-                        "type": "warning", "color": "yellow",
-                        "row": row_idx, "code": code_str,
-                        "message": f"Texte dans champ numérique : {commentaire}",
-                    })
+                alert_type = ("info", "blue") if kw_found else ("warning", "yellow")
+                msg = (
+                    f"Mot-clé détecté : {commentaire}" if kw_found
+                    else f"Texte dans champ numérique : {commentaire}"
+                )
+                alerts.append({
+                    "type":    alert_type[0],
+                    "color":   alert_type[1],
+                    "row":     row_idx,
+                    "code":    code_str,
+                    "message": msg,
+                })
+                log.debug("Alerte %s code=%s : %s", alert_type[0], code_str, msg)
 
             alert = _check_total_coherence(qu_val, pu_val, tot_val, row_idx, code_str)
             if alert:
@@ -200,4 +198,8 @@ def parse_dpgf(filepath):
 
     wb.close()
     dpgf_df = pd.DataFrame(rows)
+    log.info(
+        "DPGF parsé : %d lignes, %d alertes",
+        len(dpgf_df), len(alerts),
+    )
     return dpgf_df, alerts

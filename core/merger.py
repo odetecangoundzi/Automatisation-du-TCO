@@ -8,6 +8,10 @@ de leur section parente.
 """
 
 import pandas as pd
+from config import TVA_DEFAULT
+from logger import get_logger
+
+log = get_logger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -41,6 +45,7 @@ def _get_children_total(df, parent_code, total_col, children_index):
     """
     prefix = parent_code + "."
     total  = 0.0
+    count  = 0
     for code, idx_list in children_index.items():
         if not code.startswith(prefix):
             continue
@@ -51,6 +56,7 @@ def _get_children_total(df, parent_code, total_col, children_index):
                 if val is not None:
                     try:
                         total += float(val)
+                        count += 1
                     except (ValueError, TypeError):
                         pass
     return total
@@ -73,6 +79,7 @@ def merge_company_into_tco(tco_df, dpgf_df, company_name):
         merged_df : DataFrame avec colonnes entreprise ajoutées
         alerts    : liste d'alertes (codes non trouvés)
     """
+    log.info("Fusion DPGF pour l'entreprise : %s", company_name)
     merged_df = tco_df.copy()
     alerts    = []
 
@@ -96,6 +103,7 @@ def merge_company_into_tco(tco_df, dpgf_df, company_name):
 
     # Fusion articles + sub_sections du DPGF
     dpgf_data = dpgf_df[dpgf_df["row_type"].isin(["article", "sub_section"])]
+    matched_count = 0
 
     for _, dpgf_row in dpgf_data.iterrows():
         code = _normalize_code(dpgf_row["Code"])
@@ -107,6 +115,7 @@ def merge_company_into_tco(tco_df, dpgf_df, company_name):
             merged_df.at[idx, col_pu]  = dpgf_row["Px_U_HT"]
             merged_df.at[idx, col_tot] = dpgf_row["Px_Tot_HT"]
             merged_df.at[idx, col_com] = dpgf_row.get("Commentaire", "")
+            matched_count += 1
         else:
             alerts.append({
                 "type":    "warning",
@@ -114,6 +123,11 @@ def merge_company_into_tco(tco_df, dpgf_df, company_name):
                 "code":    code,
                 "message": f"Code '{code}' du DPGF non trouvé dans le TCO",
             })
+
+    log.info(
+        "Fusion terminée : %d lignes matchées, %d non trouvées",
+        matched_count, len(alerts)
+    )
 
     _compute_section_totals(merged_df, col_tot)
     return merged_df, alerts
@@ -123,7 +137,7 @@ def merge_company_into_tco(tco_df, dpgf_df, company_name):
 # Calcul des sous-totaux
 # ---------------------------------------------------------------------------
 
-def _compute_section_totals(df, total_col, tva_rate=0.20):
+def _compute_section_totals(df, total_col, tva_rate=TVA_DEFAULT):
     """
     Recalcule les totaux pour :
       1. section_header (01.X) : somme directe des articles + sub_sections
@@ -133,19 +147,14 @@ def _compute_section_totals(df, total_col, tva_rate=0.20):
 
     Args:
         total_col : colonne à calculer (ex: "MAB SUD-OUEST_Px_Tot_HT")
-        tva_rate  : taux de TVA (paramétrable, défaut 20%)
-
-    Note : les sub_sections portent déjà leurs valeurs propres depuis
-    la fusion DPGF, elles ne sont PAS recalculées.
+        tva_rate  : taux de TVA (paramétrable)
     """
-    # PERF-1 : pré-indexer les codes pour les appels _get_children_total
     children_index: dict[str, list] = {}
     for idx, row in df.iterrows():
         code = _normalize_code(row["Code"])
         if code:
             children_index.setdefault(code, []).append(idx)
 
-    # PERF-1 : pré-indexer les section_headers pour les passes 2 et 3
     section_header_index = _build_section_index(df)
 
     # Passe 1 : calculer les totaux des section_headers
@@ -193,23 +202,23 @@ def _compute_section_totals(df, total_col, tva_rate=0.20):
     if montant_ht > 0:
         tva         = montant_ht * tva_rate
         montant_ttc = montant_ht + tva
+        term_map = {"montant ht": montant_ht, "tva": tva, "ttc": montant_ttc}
+        
         for idx, row in df.iterrows():
             if row["row_type"] != "total_line":
                 continue
             desig = str(row.get("Désignation", "")).strip().lower()
-            if "montant ht" in desig:
-                df.at[idx, total_col] = montant_ht
-            elif "tva" in desig:
-                df.at[idx, total_col] = tva
-            elif "ttc" in desig:
-                df.at[idx, total_col] = montant_ttc
+            for key, val in term_map.items():
+                if key in desig:
+                    df.at[idx, total_col] = val
+                    break
 
     # Colonne de base Px_Tot_HT (si on vient de calculer une colonne entreprise)
     if total_col != "Px_Tot_HT":
         _compute_ht_tva_ttc_base(df, tva_rate)
 
 
-def _compute_ht_tva_ttc_base(df, tva_rate=0.20):
+def _compute_ht_tva_ttc_base(df, tva_rate=TVA_DEFAULT):
     """Calcule Montant HT, TVA, TTC pour la colonne de base Px_Tot_HT."""
     montant_ht = sum(
         float(row["Px_Tot_HT"])
@@ -223,13 +232,13 @@ def _compute_ht_tva_ttc_base(df, tva_rate=0.20):
 
     tva         = montant_ht * tva_rate
     montant_ttc = montant_ht + tva
+    term_map    = {"montant ht": montant_ht, "tva": tva, "ttc": montant_ttc}
+
     for idx, row in df.iterrows():
         if row["row_type"] != "total_line":
             continue
         desig = str(row.get("Désignation", "")).strip().lower()
-        if "montant ht" in desig:
-            df.at[idx, "Px_Tot_HT"] = montant_ht
-        elif "tva" in desig:
-            df.at[idx, "Px_Tot_HT"] = tva
-        elif "ttc" in desig:
-            df.at[idx, "Px_Tot_HT"] = montant_ttc
+        for key, val in term_map.items():
+            if key in desig:
+                df.at[idx, "Px_Tot_HT"] = val
+                break
