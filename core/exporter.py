@@ -6,9 +6,10 @@ Génère un fichier .xlsx avec :
 - Mise en forme (gras, freeze pane, largeur auto)
 - Coloration selon alertes
 - Lignes section_header et recap mises en évidence
-- Colonnes masquées (Entete, flags internes)
+- Support export via BytesIO (pas de sauvegarde disque obligatoire)
 """
 
+import io
 import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
@@ -18,16 +19,14 @@ from openpyxl.utils import get_column_letter
 # Constantes de style
 # ---------------------------------------------------------------------------
 
-FONT_HEADER = Font(bold=True, size=11, color="FFFFFF")
+FONT_HEADER         = Font(bold=True, size=11, color="FFFFFF")
 FONT_HEADER_COMPANY = Font(bold=True, size=12, color="FFFFFF")
-FONT_SECTION = Font(bold=True, size=10, color="1F4E79")
-FONT_RECAP = Font(bold=True, size=10, color="2F5496")
-FONT_TOTAL = Font(bold=True, size=10)
-FONT_DATA = Font(size=10)
+FONT_SECTION        = Font(bold=True, size=10, color="1F4E79")
+FONT_RECAP          = Font(bold=True, size=10, color="2F5496")
+FONT_TOTAL          = Font(bold=True, size=10)
+FONT_DATA           = Font(size=10)
 
-FILL_HEADER = PatternFill(
-    start_color="2F5496", end_color="2F5496", fill_type="solid"
-)
+FILL_HEADER = PatternFill(start_color="2F5496", end_color="2F5496", fill_type="solid")
 FILL_COMPANY_COLORS = [
     PatternFill(start_color="548235", end_color="548235", fill_type="solid"),
     PatternFill(start_color="BF8F00", end_color="BF8F00", fill_type="solid"),
@@ -36,42 +35,20 @@ FILL_COMPANY_COLORS = [
     PatternFill(start_color="C00000", end_color="C00000", fill_type="solid"),
 ]
 
-# Section & recap highlighting
-FILL_SECTION = PatternFill(
-    start_color="DCE6F1", end_color="DCE6F1", fill_type="solid"
-)
-FILL_RECAP = PatternFill(
-    start_color="B4C6E7", end_color="B4C6E7", fill_type="solid"
-)
-FILL_RECAP_SUMMARY = PatternFill(
-    start_color="D6DCE4", end_color="D6DCE4", fill_type="solid"
-)
-FILL_TOTAL_LINE = PatternFill(
-    start_color="E2EFDA", end_color="E2EFDA", fill_type="solid"
-)
-FILL_SUB_SECTION = PatternFill(
-    start_color="EDF2F9", end_color="EDF2F9", fill_type="solid"
-)
+FILL_SECTION       = PatternFill(start_color="DCE6F1", end_color="DCE6F1", fill_type="solid")
+FILL_RECAP         = PatternFill(start_color="B4C6E7", end_color="B4C6E7", fill_type="solid")
+FILL_RECAP_SUMMARY = PatternFill(start_color="D6DCE4", end_color="D6DCE4", fill_type="solid")
+FILL_TOTAL_LINE    = PatternFill(start_color="E2EFDA", end_color="E2EFDA", fill_type="solid")
+FILL_SUB_SECTION   = PatternFill(start_color="EDF2F9", end_color="EDF2F9", fill_type="solid")
 
-# Alertes
-FILL_ERROR = PatternFill(
-    start_color="FFC7CE", end_color="FFC7CE", fill_type="solid"
-)
-FILL_WARNING = PatternFill(
-    start_color="FFE4B5", end_color="FFE4B5", fill_type="solid"
-)
-FILL_NOTE = PatternFill(
-    start_color="FFFFCC", end_color="FFFFCC", fill_type="solid"
-)
-FILL_INFO = PatternFill(
-    start_color="D6EAF8", end_color="D6EAF8", fill_type="solid"
-)
+FILL_ERROR   = PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid")
+FILL_WARNING = PatternFill(start_color="FFE4B5", end_color="FFE4B5", fill_type="solid")
+FILL_NOTE    = PatternFill(start_color="FFFFCC", end_color="FFFFCC", fill_type="solid")
+FILL_INFO    = PatternFill(start_color="D6EAF8", end_color="D6EAF8", fill_type="solid")
 
 THIN_BORDER = Border(
-    left=Side(style="thin"),
-    right=Side(style="thin"),
-    top=Side(style="thin"),
-    bottom=Side(style="thin"),
+    left=Side(style="thin"), right=Side(style="thin"),
+    top=Side(style="thin"),  bottom=Side(style="thin"),
 )
 
 
@@ -80,9 +57,8 @@ THIN_BORDER = Border(
 # ---------------------------------------------------------------------------
 
 def _detect_companies(df):
-    """Détecte les noms d'entreprises à partir des colonnes."""
-    companies = []
-    seen = set()
+    """Détecte les noms d'entreprises à partir des colonnes _Qu."""
+    companies, seen = [], set()
     for col in df.columns:
         if col.endswith("_Qu."):
             name = col[:-4]
@@ -99,40 +75,42 @@ def _auto_width(ws, min_width=8, max_width=40):
         max_len = min_width
         for cell in col_cells:
             if cell.value:
-                cell_len = len(str(cell.value))
-                max_len = max(max_len, min(cell_len + 2, max_width))
+                max_len = max(max_len, min(len(str(cell.value)) + 2, max_width))
         ws.column_dimensions[col_letter].width = max_len
 
 
 def _get_alert_fill(color):
-    """Retourne le PatternFill correspondant à la couleur d'alerte."""
-    return {
-        "red": FILL_ERROR,
-        "orange": FILL_WARNING,
-        "yellow": FILL_NOTE,
-        "blue": FILL_INFO,
-    }.get(color)
+    return {"red": FILL_ERROR, "orange": FILL_WARNING,
+            "yellow": FILL_NOTE, "blue": FILL_INFO}.get(color)
 
 
 def _get_row_style(row_type):
-    """Retourne (font, fill) selon le type de ligne."""
-    styles = {
+    return {
         "section_header": (FONT_SECTION, FILL_SECTION),
-        "recap": (FONT_RECAP, FILL_RECAP),
-        "recap_summary": (FONT_RECAP, FILL_RECAP_SUMMARY),
-        "total_line": (FONT_TOTAL, FILL_TOTAL_LINE),
-        "sub_section": (FONT_DATA, FILL_SUB_SECTION),
-    }
-    return styles.get(row_type, (FONT_DATA, None))
+        "recap":          (FONT_RECAP,   FILL_RECAP),
+        "recap_summary":  (FONT_RECAP,   FILL_RECAP_SUMMARY),
+        "total_line":     (FONT_TOTAL,   FILL_TOTAL_LINE),
+        "sub_section":    (FONT_DATA,    FILL_SUB_SECTION),
+    }.get(row_type, (FONT_DATA, None))
 
 
 # ---------------------------------------------------------------------------
 # Main exporter
 # ---------------------------------------------------------------------------
 
-def export_tco(merged_df, meta, output_path, alerts=None):
+def export_tco(merged_df, meta, output_path=None, alerts=None):
     """
     Exporte le TCO fusionné en fichier Excel formaté.
+
+    Args:
+        merged_df   : DataFrame fusionné
+        meta        : dict avec sheet_name, etc.
+        output_path : chemin de sauvegarde disque (optionnel)
+                      Si None, retourne un BytesIO
+        alerts      : liste d'alertes
+
+    Returns:
+        output_path si fourni, sinon un io.BytesIO prêt au téléchargement
     """
     if alerts is None:
         alerts = []
@@ -156,27 +134,19 @@ def export_tco(merged_df, meta, output_path, alerts=None):
     company_start_col = 7
     for comp_idx, comp in enumerate(companies):
         start_col = company_start_col
-        end_col = start_col + 3
-
+        end_col   = start_col + 3
         ws.cell(row=1, column=start_col, value=comp)
-        ws.merge_cells(
-            start_row=1, start_column=start_col,
-            end_row=1, end_column=end_col,
-        )
-
+        ws.merge_cells(start_row=1, start_column=start_col, end_row=1, end_column=end_col)
         fill = FILL_COMPANY_COLORS[comp_idx % len(FILL_COMPANY_COLORS)]
         for c in range(start_col, end_col + 1):
             cell = ws.cell(row=1, column=c)
             cell.font = FONT_HEADER_COMPANY
             cell.fill = fill
             cell.alignment = Alignment(horizontal="center")
-
         company_start_col = end_col + 1
 
     # --- ROW 2 : Noms de colonnes ---
-    base_headers = [
-        "Code", "Désignation", "Qu.", "U", "Px U. HT", "Px Tot HT",
-    ]
+    base_headers = ["Code", "Désignation", "Qu.", "U", "Px U. HT", "Px Tot HT"]
     for i, header in enumerate(base_headers, 1):
         cell = ws.cell(row=2, column=i, value=header)
         cell.font = FONT_HEADER
@@ -186,9 +156,8 @@ def export_tco(merged_df, meta, output_path, alerts=None):
 
     col_offset = 7
     for comp_idx, comp in enumerate(companies):
-        comp_headers = ["Qu.", "Px U. HT", "Px Tot HT", "Commentaire poste"]
         fill = FILL_COMPANY_COLORS[comp_idx % len(FILL_COMPANY_COLORS)]
-        for i, header in enumerate(comp_headers):
+        for i, header in enumerate(["Qu.", "Px U. HT", "Px Tot HT", "Commentaire poste"]):
             cell = ws.cell(row=2, column=col_offset + i, value=header)
             cell.font = FONT_HEADER
             cell.fill = fill
@@ -198,7 +167,7 @@ def export_tco(merged_df, meta, output_path, alerts=None):
 
     max_col = 6 + len(companies) * 4
 
-    # --- Index des alertes par code ---
+    # Index des alertes par code
     alert_by_code = {}
     for alert in alerts:
         code = alert.get("code", "")
@@ -206,16 +175,15 @@ def export_tco(merged_df, meta, output_path, alerts=None):
             alert_by_code.setdefault(code, []).append(alert)
 
     # --- ROWS 3+ : Données ---
-    for df_idx, row in merged_df.iterrows():
-        excel_row = df_idx + 3
-        code = row["Code"]
+    # BUG-1 FIX : compteur indépendant pour éviter les trous d'index
+    excel_row = 3
+    for _, row in merged_df.iterrows():
         row_type = row["row_type"]
-
-        # Skip completely empty rows
         if row_type == "empty":
             continue
 
-        # --- Écriture des valeurs ---
+        code = row["Code"]
+
         ws.cell(row=excel_row, column=1, value=code)
         ws.cell(row=excel_row, column=2, value=row["Désignation"])
         ws.cell(row=excel_row, column=3, value=row.get("Qu."))
@@ -225,27 +193,13 @@ def export_tco(merged_df, meta, output_path, alerts=None):
 
         col_offset = 7
         for comp in companies:
-            ws.cell(
-                row=excel_row, column=col_offset,
-                value=row.get(f"{comp}_Qu."),
-            )
-            ws.cell(
-                row=excel_row, column=col_offset + 1,
-                value=row.get(f"{comp}_Px_U_HT"),
-            )
-            ws.cell(
-                row=excel_row, column=col_offset + 2,
-                value=row.get(f"{comp}_Px_Tot_HT"),
-            )
-            ws.cell(
-                row=excel_row, column=col_offset + 3,
-                value=row.get(f"{comp}_Commentaire"),
-            )
+            ws.cell(row=excel_row, column=col_offset,     value=row.get(f"{comp}_Qu."))
+            ws.cell(row=excel_row, column=col_offset + 1, value=row.get(f"{comp}_Px_U_HT"))
+            ws.cell(row=excel_row, column=col_offset + 2, value=row.get(f"{comp}_Px_Tot_HT"))
+            ws.cell(row=excel_row, column=col_offset + 3, value=row.get(f"{comp}_Commentaire"))
             col_offset += 4
 
-        # --- Style selon le type de ligne ---
         font, fill = _get_row_style(row_type)
-
         for c in range(1, max_col + 1):
             cell = ws.cell(row=excel_row, column=c)
             cell.font = font
@@ -253,26 +207,33 @@ def export_tco(merged_df, meta, output_path, alerts=None):
             if fill:
                 cell.fill = fill
 
-        # Coloration des alertes par code
+        # Coloration d'alerte sur les articles uniquement
         if code and code in alert_by_code and row_type == "article":
             for alert in alert_by_code[code]:
                 alert_fill = _get_alert_fill(alert["color"])
                 if alert_fill:
-                    comp_col_start = 7
-                    for comp in companies:
-                        for c in range(comp_col_start, comp_col_start + 4):
+                    comp_col = 7
+                    for _ in companies:
+                        for c in range(comp_col, comp_col + 4):
                             ws.cell(row=excel_row, column=c).fill = alert_fill
-                        comp_col_start += 4
+                        comp_col += 4
 
-    # --- Freeze pane ---
+        excel_row += 1
+
+    # Freeze pane & auto-width
     ws.freeze_panes = "C3"
-
-    # --- Largeur auto ---
     _auto_width(ws)
     ws.column_dimensions["B"].width = 55
 
-    # --- Sauvegarde ---
-    wb.save(output_path)
-    wb.close()
-
-    return output_path
+    # Sauvegarde
+    if output_path:
+        wb.save(output_path)
+        wb.close()
+        return output_path
+    else:
+        # UX-6 : export via BytesIO (pas de sauvegarde disque)
+        buffer = io.BytesIO()
+        wb.save(buffer)
+        wb.close()
+        buffer.seek(0)
+        return buffer
