@@ -3,6 +3,7 @@ parser_dpgf.py — Normalisation et extraction des annotations des DPGF entrepri
 
 Gère les textes dans les cellules numériques (SANS OBJET, COMPRIS, nc, P-M),
 extrait les annotations en colonne Commentaire, et détecte les erreurs.
+Utilise la colonne Entete (col M) pour classifier chaque ligne.
 """
 
 import pandas as pd
@@ -25,7 +26,7 @@ KEYWORDS = {
     "pm": "pm",
 }
 
-TOTAL_TOLERANCE = 0.02  # tolérance pour Qu × PU ≈ Total
+TOTAL_TOLERANCE = 0.02
 
 
 # ---------------------------------------------------------------------------
@@ -33,10 +34,7 @@ TOTAL_TOLERANCE = 0.02  # tolérance pour Qu × PU ≈ Total
 # ---------------------------------------------------------------------------
 
 def _find_header_row(ws):
-    """
-    Trouve la ligne d'en-tête dans un DPGF entreprise.
-    Cherche 'Code' + 'Désignation' + ('Cc' ou 'Qu.').
-    """
+    """Trouve la ligne d'en-tête dans un DPGF entreprise."""
     for row_idx in range(1, min(ws.max_row + 1, 20)):
         a_val = ws.cell(row=row_idx, column=1).value
         b_val = ws.cell(row=row_idx, column=2).value
@@ -48,10 +46,35 @@ def _find_header_row(ws):
     raise ValueError("Impossible de trouver la ligne d'en-tête du DPGF.")
 
 
+def _classify_row(code_str, desig_str, entete_str):
+    """
+    Classifie une ligne du DPGF selon la colonne Entete.
+    Même logique que parser_tco._classify_row.
+    """
+    ent = entete_str
+    if "RecapBord" in ent:
+        return "recap_summary"
+    if "LignesTot" in ent:
+        return "total_line"
+    if "Bord" in ent and "Recap" in ent:
+        return "recap"
+    if ent.startswith("Bd_") and "Bord" in ent:
+        return "section_header"
+    if "_Niv1" in ent or "_Niv2" in ent:
+        return "sub_section"
+    if "_Art" in ent:
+        return "article"
+    if code_str.lower().startswith("total"):
+        return "total_text"
+    if not code_str and not desig_str:
+        return "empty"
+    return "other"
+
+
 def _clean_numeric(value):
     """
     Nettoie une valeur potentiellement numérique.
-    Retourne (nombre_float, texte_annotion) ou (None, texte_brut).
+    Retourne (nombre_float, texte_annotation).
     """
     if value is None:
         return 0.0, ""
@@ -63,43 +86,27 @@ def _clean_numeric(value):
     if not text:
         return 0.0, ""
 
-    # Vérifier si c'est un mot-clé connu
+    # Mot-clé connu
     text_lower = text.lower().strip()
     for keyword, abbrev in KEYWORDS.items():
         if keyword in text_lower:
             return 0.0, abbrev
 
-    # Essayer d'extraire un nombre
-    # Format français : remplacer virgule par point, supprimer espaces
-    cleaned = text.replace(" ", "").replace("\u00a0", "")
-    cleaned = cleaned.replace(",", ".")
+    # Format français → nombre
+    cleaned = text.replace(" ", "").replace("\u00a0", "").replace(",", ".")
 
-    # Chercher un nombre dans le texte
     match = re.search(r"-?\d+(?:\.\d+)?", cleaned)
     if match:
         number = float(match.group())
-        # Le reste du texte est une annotation
         remaining = re.sub(r"-?\d+(?:\.\d+)?", "", cleaned).strip()
         remaining = remaining.strip("()[]{}/ ")
         return number, remaining
 
-    # Texte pur sans nombre
     return 0.0, text
 
 
-def _is_total_row(code_val):
-    """Vérifie si la ligne est une ligne de total."""
-    if not code_val:
-        return False
-    return str(code_val).strip().lower().startswith("total")
-
-
-# ---------------------------------------------------------------------------
-# Alertes
-# ---------------------------------------------------------------------------
-
 def _check_total_coherence(qu_val, pu_val, total_val, row_idx, code):
-    """Vérifie que Qu × PU ≈ Total. Retourne une alerte si incohérent."""
+    """Vérifie que Qu × PU ≈ Total."""
     if qu_val and pu_val and total_val:
         try:
             expected = float(qu_val) * float(pu_val)
@@ -129,10 +136,8 @@ def parse_dpgf(filepath):
     Lit et normalise un fichier DPGF entreprise (.xlsx).
 
     Retourne :
-        dpgf_df : DataFrame avec colonnes
-            [Code, Désignation, Qu., U, Px_U_HT, Px_Tot_HT, Commentaire,
-             Entete, row_type, original_row]
-        alerts  : liste de dicts décrivant les anomalies détectées
+        dpgf_df : DataFrame normalisé
+        alerts  : liste d'alertes
     """
     wb = openpyxl.load_workbook(filepath, data_only=True)
     ws = wb.active
@@ -141,80 +146,89 @@ def parse_dpgf(filepath):
     alerts = []
 
     rows = []
+    current_section_code = ""
+
     for row_idx in range(header_row + 1, ws.max_row + 1):
-        code = ws.cell(row=row_idx, column=1).value
-        designation = ws.cell(row=row_idx, column=2).value
-        cc_raw = ws.cell(row=row_idx, column=3).value      # Cc (quantité)
+        code_raw = ws.cell(row=row_idx, column=1).value
+        desig_raw = ws.cell(row=row_idx, column=2).value
+        cc_raw = ws.cell(row=row_idx, column=3).value
         u = ws.cell(row=row_idx, column=4).value
-        px_u_raw = ws.cell(row=row_idx, column=5).value     # Px U
-        px_tot_raw = ws.cell(row=row_idx, column=6).value   # Px Total
-        entete = ws.cell(row=row_idx, column=13).value      # col M
+        px_u_raw = ws.cell(row=row_idx, column=5).value
+        px_tot_raw = ws.cell(row=row_idx, column=6).value
+        entete = ws.cell(row=row_idx, column=13).value
 
-        # Déterminer le type de ligne
-        if _is_total_row(code):
-            row_type = "total"
-        elif entete and "Recap" in str(entete):
-            row_type = "recap"
-        elif code and designation:
-            row_type = "data"
-        elif not code and not designation:
-            row_type = "empty"
+        code_str = str(code_raw).strip() if code_raw else ""
+        desig_str = str(desig_raw).strip() if desig_raw else ""
+        ent_str = str(entete).strip() if entete else ""
+
+        row_type = _classify_row(code_str, desig_str, ent_str)
+
+        # Suivre la section parente
+        if row_type == "section_header":
+            current_section_code = code_str
+
+        parent_code = ""
+        if row_type == "recap":
+            parent_code = current_section_code
+
+        # Normaliser les valeurs numériques uniquement pour articles
+        if row_type == "article":
+            qu_val, qu_comment = _clean_numeric(cc_raw)
+            pu_val, pu_comment = _clean_numeric(px_u_raw)
+            tot_val, tot_comment = _clean_numeric(px_tot_raw)
+        elif row_type == "sub_section" and cc_raw is not None:
+            # Sous-sections avec quantités renseignées
+            qu_val, qu_comment = _clean_numeric(cc_raw)
+            pu_val, pu_comment = _clean_numeric(px_u_raw)
+            tot_val, tot_comment = _clean_numeric(px_tot_raw)
         else:
-            row_type = "other"
-
-        # Normaliser les valeurs numériques
-        qu_val, qu_comment = _clean_numeric(cc_raw)
-        pu_val, pu_comment = _clean_numeric(px_u_raw)
-        tot_val, tot_comment = _clean_numeric(px_tot_raw)
+            qu_val = cc_raw if isinstance(cc_raw, (int, float)) else 0.0
+            pu_val = px_u_raw if isinstance(px_u_raw, (int, float)) else 0.0
+            tot_val = px_tot_raw if isinstance(px_tot_raw, (int, float)) else 0.0
+            qu_comment = pu_comment = tot_comment = ""
 
         # Construire le commentaire consolidé
         comments = [c for c in [qu_comment, pu_comment, tot_comment] if c]
         commentaire = "; ".join(comments) if comments else ""
 
-        # Générer les alertes pour les lignes de données
-        code_str = str(code).strip() if code else ""
-
-        if row_type == "data" and code_str:
-            # Alerte texte dans valeur numérique
+        # Alertes pour articles
+        if row_type == "article" and code_str:
             if qu_comment or pu_comment or tot_comment:
                 kw_found = any(
                     c.lower() in KEYWORDS or c.lower() in KEYWORDS.values()
-                    for c in [qu_comment, pu_comment, tot_comment]
-                    if c
+                    for c in [qu_comment, pu_comment, tot_comment] if c
                 )
                 if kw_found:
                     alerts.append({
-                        "type": "info",
-                        "color": "blue",
-                        "row": row_idx,
-                        "code": code_str,
+                        "type": "info", "color": "blue",
+                        "row": row_idx, "code": code_str,
                         "message": f"Mot-clé détecté : {commentaire}",
                     })
                 else:
                     alerts.append({
-                        "type": "warning",
-                        "color": "yellow",
-                        "row": row_idx,
-                        "code": code_str,
+                        "type": "warning", "color": "yellow",
+                        "row": row_idx, "code": code_str,
                         "message": f"Texte dans champ numérique : {commentaire}",
                     })
 
-            # Alerte total incohérent
-            alert = _check_total_coherence(qu_val, pu_val, tot_val, row_idx, code_str)
+            alert = _check_total_coherence(
+                qu_val, pu_val, tot_val, row_idx, code_str
+            )
             if alert:
                 alerts.append(alert)
 
         rows.append({
             "Code": code_str,
-            "Désignation": str(designation).strip() if designation else "",
+            "Désignation": desig_str,
             "Qu.": qu_val,
             "U": str(u).strip() if u else "",
             "Px_U_HT": pu_val,
             "Px_Tot_HT": tot_val,
             "Commentaire": commentaire,
-            "Entete": str(entete).strip() if entete else "",
+            "Entete": ent_str,
             "row_type": row_type,
             "original_row": row_idx,
+            "parent_code": parent_code,
         })
 
     dpgf_df = pd.DataFrame(rows)
