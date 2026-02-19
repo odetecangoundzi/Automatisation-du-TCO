@@ -3,14 +3,16 @@ app.py — Interface Streamlit pour TCO Automator.
 
 Application en 3 étapes :
 1. Import du TCO modèle
-2. Import des DPGF entreprises (un ou plusieurs)
+2. Import des DPGF entreprises (un ou plusieurs), avec suppression possible
 3. Visualisation du résultat et export
+
+Gestion d'état : chaque DPGF entreprise est stocké individuellement
+dans session_state pour permettre l'ajout/suppression et la reconstruction.
 """
 
 import streamlit as st
 import pandas as pd
 import os
-import tempfile
 from datetime import datetime
 
 from core.parser_tco import parse_tco
@@ -49,16 +51,40 @@ def save_uploaded_file(uploaded_file, directory):
     if ext not in ALLOWED_EXTENSIONS:
         st.error(f"❌ Format non accepté : {ext}. Seul .xlsx est autorisé.")
         return None
-
     size_mb = uploaded_file.size / (1024 * 1024)
     if size_mb > MAX_FILE_SIZE_MB:
         st.error(f"❌ Fichier trop volumineux ({size_mb:.1f} MB > {MAX_FILE_SIZE_MB} MB)")
         return None
-
     filepath = os.path.join(directory, uploaded_file.name)
     with open(filepath, "wb") as f:
         f.write(uploaded_file.getbuffer())
     return filepath
+
+
+def rebuild_merged_tco():
+    """
+    Reconstruit le TCO fusionné à partir du TCO de base et de toutes
+    les entreprises stockées dans session_state.
+    Appelée après chaque ajout ou suppression d'entreprise.
+    """
+    if st.session_state.tco_df is None:
+        return
+
+    merged = st.session_state.tco_df.copy()
+    all_alerts = []
+
+    for comp_name, comp_data in st.session_state.company_data.items():
+        dpgf_df = comp_data["dpgf_df"]
+        parse_alerts = comp_data["parse_alerts"]
+
+        merged, merge_alerts = merge_company_into_tco(
+            merged, dpgf_df, comp_name
+        )
+        all_alerts.extend(parse_alerts)
+        all_alerts.extend(merge_alerts)
+
+    st.session_state.merged_df = merged
+    st.session_state.all_alerts = all_alerts
 
 
 def display_alerts(alerts, title="Alertes détectées"):
@@ -67,10 +93,10 @@ def display_alerts(alerts, title="Alertes détectées"):
         st.success("✅ Aucune anomalie détectée")
         return
 
-    # Compter les alertes par type
     counts = {"error": 0, "warning": 0, "info": 0}
     for a in alerts:
-        counts[a.get("type", "info")] = counts.get(a.get("type", "info"), 0) + 1
+        t = a.get("type", "info")
+        counts[t] = counts.get(t, 0) + 1
 
     cols = st.columns(3)
     with cols[0]:
@@ -83,14 +109,11 @@ def display_alerts(alerts, title="Alertes détectées"):
         if counts["info"] > 0:
             st.info(f"🔵 {counts['info']} info(s)")
 
-    # Détails dans un expander
     with st.expander("📋 Détail des alertes", expanded=False):
         for alert in alerts:
-            icon = {
-                "error": "🔴",
-                "warning": "🟡",
-                "info": "🔵",
-            }.get(alert["type"], "ℹ️")
+            icon = {"error": "🔴", "warning": "🟡", "info": "🔵"}.get(
+                alert["type"], "ℹ️"
+            )
             st.write(
                 f"{icon} **{alert.get('code', '')}** — {alert.get('message', '')}"
             )
@@ -99,14 +122,10 @@ def display_alerts(alerts, title="Alertes détectées"):
 def display_preview(df, title="Aperçu", n_rows=20):
     """Affiche un aperçu d'un DataFrame."""
     st.write(f"**{title}** ({len(df)} lignes)")
-
-    # Colonnes à afficher (masquer les colonnes techniques)
     display_cols = [
         c for c in df.columns
-        if c not in ("Entete", "row_type", "original_row")
+        if c not in ("Entete", "row_type", "original_row", "parent_code")
     ]
-
-    # Filtrer les lignes vides
     preview = df[df["row_type"] != "empty"][display_cols].head(n_rows)
     st.dataframe(preview, use_container_width=True, hide_index=True)
 
@@ -132,6 +151,13 @@ st.markdown("""
         padding: 12px 20px;
         border-radius: 8px;
         margin: 1rem 0 0.5rem;
+    }
+    .company-card {
+        background: #f8f9fa;
+        border: 1px solid #dee2e6;
+        border-radius: 8px;
+        padding: 12px 16px;
+        margin: 4px 0;
     }
     .legend-box {
         display: flex;
@@ -167,10 +193,13 @@ if "merged_df" not in st.session_state:
     st.session_state.merged_df = None
 if "all_alerts" not in st.session_state:
     st.session_state.all_alerts = []
-if "companies" not in st.session_state:
-    st.session_state.companies = []
+# Stockage individuel par entreprise : {nom: {dpgf_df, parse_alerts, filename}}
+if "company_data" not in st.session_state:
+    st.session_state.company_data = {}
 if "step" not in st.session_state:
     st.session_state.step = 1
+if "upload_counter" not in st.session_state:
+    st.session_state.upload_counter = 0
 
 
 # ---------------------------------------------------------------------------
@@ -186,7 +215,7 @@ st.markdown(
 )
 
 # Progress bar
-progress_labels = ["1️⃣ TCO Modèle", "2️⃣ DPGF Entreprise", "3️⃣ Résultat & Export"]
+progress_labels = ["1️⃣ TCO Modèle", "2️⃣ DPGF Entreprises", "3️⃣ Résultat & Export"]
 progress_cols = st.columns(3)
 for i, (col, label) in enumerate(zip(progress_cols, progress_labels)):
     with col:
@@ -230,7 +259,6 @@ if st.session_state.step >= 1:
                     st.session_state.tco_meta = meta
                     st.session_state.merged_df = tco_df.copy()
 
-                    # Afficher les infos du projet
                     info = meta["project_info"]
                     if info:
                         st.info(
@@ -238,10 +266,13 @@ if st.session_state.step >= 1:
                             f"**Lot :** {info.get('lot', 'N/A')}"
                         )
 
+                    # Compter les articles
+                    article_count = len(
+                        tco_df[tco_df["row_type"] == "article"]
+                    )
                     st.success(
-                        f"✅ TCO chargé avec succès — "
-                        f"{len(tco_df)} lignes, "
-                        f"{len(tco_df[tco_df['row_type']=='data'])} postes"
+                        f"✅ TCO chargé — {len(tco_df)} lignes, "
+                        f"{article_count} articles"
                     )
                 except Exception as e:
                     st.error(f"❌ Erreur de lecture : {e}")
@@ -256,29 +287,61 @@ if st.session_state.step >= 1:
 
 
 # ---------------------------------------------------------------------------
-# STEP 2 — Import DPGF Entreprise
+# STEP 2 — Import DPGF Entreprises
 # ---------------------------------------------------------------------------
 
 if st.session_state.step >= 2:
     st.markdown(
-        "<div class='step-header'>📥 Étape 2 — Importer un DPGF Entreprise</div>",
+        "<div class='step-header'>📥 Étape 2 — Gérer les DPGF Entreprises</div>",
         unsafe_allow_html=True,
     )
 
-    # Afficher les entreprises déjà importées
-    if st.session_state.companies:
-        st.success(
-            "✅ Entreprises importées : " +
-            ", ".join(f"**{c}**" for c in st.session_state.companies)
+    # --- Liste des entreprises importées avec bouton supprimer ---
+    if st.session_state.company_data:
+        st.write(
+            f"**{len(st.session_state.company_data)} entreprise(s) importée(s) :**"
         )
 
-    # Formulaire d'import
+        for comp_name in list(st.session_state.company_data.keys()):
+            comp_info = st.session_state.company_data[comp_name]
+            n_alerts = len(comp_info["parse_alerts"])
+            n_articles = len(
+                comp_info["dpgf_df"][
+                    comp_info["dpgf_df"]["row_type"] == "article"
+                ]
+            )
+
+            col_info, col_btn = st.columns([4, 1])
+            with col_info:
+                st.markdown(
+                    f"<div class='company-card'>"
+                    f"🏢 <b>{comp_name}</b> — "
+                    f"{n_articles} articles, {n_alerts} alerte(s) "
+                    f"<i>({comp_info['filename']})</i>"
+                    f"</div>",
+                    unsafe_allow_html=True,
+                )
+            with col_btn:
+                if st.button(
+                    "🗑️ Retirer",
+                    key=f"remove_{comp_name}",
+                    help=f"Supprimer {comp_name} et recalculer le TCO",
+                ):
+                    del st.session_state.company_data[comp_name]
+                    rebuild_merged_tco()
+                    st.success(f"✅ **{comp_name}** supprimée. TCO recalculé.")
+                    st.rerun()
+
+        st.divider()
+
+    # --- Formulaire d'ajout ---
+    st.write("**Ajouter une entreprise :**")
     col1, col2 = st.columns([2, 1])
     with col1:
         dpgf_file = st.file_uploader(
             "Charger un DPGF entreprise",
             type=["xlsx"],
-            key=f"dpgf_upload_{len(st.session_state.companies)}",
+            key=f"dpgf_upload_{st.session_state.upload_counter}",
             help="Fichier DPGF d'une entreprise (ex: MAB_SUD_OUEST.xlsx)",
         )
     with col2:
@@ -289,62 +352,58 @@ if st.session_state.step >= 2:
         )
 
     if dpgf_file and company_name:
-        if st.button("🔗 Fusionner ce DPGF", type="primary"):
-            filepath = save_uploaded_file(dpgf_file, UPLOAD_DIR)
-            if filepath:
-                with st.spinner(f"🔄 Traitement de {company_name}..."):
-                    try:
-                        dpgf_df, parse_alerts = parse_dpgf(filepath)
+        # Vérifier que le nom n'est pas déjà pris
+        if company_name in st.session_state.company_data:
+            st.warning(
+                f"⚠️ **{company_name}** est déjà importée. "
+                "Supprimez-la d'abord pour la remplacer."
+            )
+        else:
+            if st.button("🔗 Fusionner ce DPGF", type="primary"):
+                filepath = save_uploaded_file(dpgf_file, UPLOAD_DIR)
+                if filepath:
+                    with st.spinner(f"🔄 Traitement de {company_name}..."):
+                        try:
+                            dpgf_df, parse_alerts = parse_dpgf(filepath)
 
-                        # Afficher les alertes de parsing
-                        display_alerts(parse_alerts, f"Alertes — {company_name}")
+                            # Stocker les données brutes
+                            st.session_state.company_data[company_name] = {
+                                "dpgf_df": dpgf_df,
+                                "parse_alerts": parse_alerts,
+                                "filename": dpgf_file.name,
+                            }
 
-                        # Fusionner
-                        merged_df, merge_alerts = merge_company_into_tco(
-                            st.session_state.merged_df,
-                            dpgf_df,
-                            company_name,
-                        )
+                            # Reconstruire le TCO complet
+                            rebuild_merged_tco()
 
-                        st.session_state.merged_df = merged_df
-                        st.session_state.all_alerts.extend(parse_alerts)
-                        st.session_state.all_alerts.extend(merge_alerts)
-                        st.session_state.companies.append(company_name)
+                            # Incrémenter le compteur pour rafraîchir le widget
+                            st.session_state.upload_counter += 1
 
-                        # Afficher les alertes de fusion
-                        if merge_alerts:
-                            display_alerts(merge_alerts, "Alertes de fusion")
+                            st.success(
+                                f"✅ **{company_name}** fusionnée — "
+                                f"{len(parse_alerts)} alerte(s)"
+                            )
+                            st.rerun()
 
-                        matched = len(dpgf_df[
-                            (dpgf_df["row_type"] == "data") &
-                            (dpgf_df["Code"] != "")
-                        ])
-                        st.success(
-                            f"✅ **{company_name}** fusionnée — "
-                            f"{matched} postes traités, "
-                            f"{len(merge_alerts)} anomalie(s)"
-                        )
-                        st.rerun()
+                        except Exception as e:
+                            st.error(f"❌ Erreur de traitement : {e}")
 
-                    except Exception as e:
-                        st.error(f"❌ Erreur de traitement : {e}")
-
-    # Aperçu du TCO fusionné
-    if st.session_state.companies:
+    # --- Aperçu du TCO fusionné ---
+    if st.session_state.company_data:
         display_preview(
             st.session_state.merged_df,
-            f"TCO fusionné ({len(st.session_state.companies)} entreprise(s))",
+            f"TCO fusionné ({len(st.session_state.company_data)} entreprise(s))",
         )
 
-    # Boutons de navigation
+    # --- Navigation ---
     col_nav1, col_nav2 = st.columns(2)
     with col_nav1:
-        if st.session_state.companies:
+        if st.session_state.company_data:
             if st.button("➡️ Passer au résultat final", type="primary"):
                 st.session_state.step = 3
                 st.rerun()
     with col_nav2:
-        if st.button("🔄 Réinitialiser"):
+        if st.button("🔄 Tout réinitialiser"):
             for key in list(st.session_state.keys()):
                 del st.session_state[key]
             st.rerun()
@@ -384,20 +443,32 @@ if st.session_state.step >= 3:
 
     # Statistiques
     merged = st.session_state.merged_df
-    data_rows = merged[merged["row_type"] == "data"]
+    article_rows = merged[merged["row_type"] == "article"]
 
     stat_cols = st.columns(4)
     with stat_cols[0]:
-        st.metric("📋 Postes", len(data_rows))
+        st.metric("📋 Articles", len(article_rows))
     with stat_cols[1]:
-        st.metric("🏢 Entreprises", len(st.session_state.companies))
+        st.metric("🏢 Entreprises", len(st.session_state.company_data))
     with stat_cols[2]:
         st.metric("⚠️ Alertes", len(st.session_state.all_alerts))
     with stat_cols[3]:
-        total_ht = data_rows["Px_Tot_HT"].sum() if "Px_Tot_HT" in data_rows else 0
+        # Montant HT depuis les total_line
+        montant_ht = None
+        for _, row in merged.iterrows():
+            if row["row_type"] == "total_line":
+                desig = str(row.get("Désignation", "")).strip().lower()
+                if "montant ht" in desig:
+                    # Chercher le premier Px_Tot_HT d'entreprise non nul
+                    for comp in st.session_state.company_data:
+                        val = row.get(f"{comp}_Px_Tot_HT")
+                        if val is not None and val != 0:
+                            montant_ht = val
+                            break
+                    break
         st.metric(
-            "💰 Total estimation HT",
-            f"{total_ht:,.2f} €" if total_ht else "N/A",
+            "💰 Montant HT",
+            f"{montant_ht:,.2f} €" if montant_ht else "N/A",
         )
 
     # Tableau complet
@@ -407,7 +478,12 @@ if st.session_state.step >= 3:
     if st.session_state.all_alerts:
         display_alerts(st.session_state.all_alerts, "Toutes les alertes")
 
-    # Export
+    # --- Bouton retour pour modifier les entreprises ---
+    if st.button("⬅️ Retour — Modifier les entreprises"):
+        st.session_state.step = 2
+        st.rerun()
+
+    # --- Export ---
     st.divider()
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     output_filename = f"TCO_FINAL_{timestamp}.xlsx"
