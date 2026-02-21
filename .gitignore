@@ -8,6 +8,8 @@ venv/
 # App data
 uploads/
 outputs/
+projects/
+logs/
 
 # Test files
 test_*.py

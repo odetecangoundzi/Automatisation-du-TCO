@@ -22,6 +22,7 @@ Corrections production :
 import re
 import uuid
 import os
+import pickle
 import streamlit as st
 import pandas as pd
 
@@ -31,7 +32,8 @@ from core.merger import merge_company_into_tco
 from core.exporter import export_tco
 from config import (
     UPLOAD_DIR, ALLOWED_EXTENSIONS, MAX_FILE_SIZE_MB, MAX_COMPANIES,
-    COMPANY_NAME_MAX_LEN, TVA_OPTIONS, TVA_DEFAULT, APP_TITLE, APP_ICON
+    COMPANY_NAME_MAX_LEN, TVA_OPTIONS, TVA_DEFAULT, APP_TITLE, APP_ICON,
+    PROJECTS_DIR
 )
 from logger import get_logger
 
@@ -49,6 +51,7 @@ st.set_page_config(
 )
 
 os.makedirs(UPLOAD_DIR, exist_ok=True)
+os.makedirs(PROJECTS_DIR, exist_ok=True)
 COMPANY_PATTERN = re.compile(r"^[A-Za-zÀ-ÖØ-öø-ÿ0-9 \-_&'\.]+$")
 
 
@@ -146,6 +149,79 @@ def display_preview(df, title="Aperçu"):
 
 
 # ---------------------------------------------------------------------------
+# Persistence Logic
+# ---------------------------------------------------------------------------
+
+def save_project(name):
+    """Sauvegarde l'état actuel dans un fichier pickle."""
+    if not name:
+        return False, "Le nom du projet est vide."
+    
+    path = os.path.join(PROJECTS_DIR, f"{name}.tco")
+    data = {
+        "tco_df":       st.session_state.get("tco_df"),
+        "company_data": st.session_state.get("company_data"),
+        "tco_meta":     st.session_state.get("tco_meta"),
+        "step":         st.session_state.get("step"),
+        "all_alerts":   st.session_state.get("all_alerts"),
+        "merged_df":    st.session_state.get("merged_df"),
+        "project_name": name
+    }
+    try:
+        with open(path, "wb") as f:
+            pickle.dump(data, f)
+        log.info("Projet sauvegardé : %s", name)
+        return True, f"Projet '{name}' sauvegardé avec succès."
+    except Exception as e:
+        log.error("Erreur sauvegarde projet %s : %s", name, e)
+        return False, f"Erreur technique : {e}"
+
+
+def load_project(name):
+    """Charge un projet depuis un fichier pickle."""
+    path = os.path.join(PROJECTS_DIR, f"{name}.tco")
+    if not os.path.exists(path):
+        return False, "Le fichier de projet n'existe plus."
+    
+    try:
+        with open(path, "rb") as f:
+            data = pickle.load(f)
+        
+        # Restauration sélective pour éviter de briser la session
+        st.session_state.tco_df       = data.get("tco_df")
+        st.session_state.company_data = data.get("company_data", {})
+        st.session_state.tco_meta     = data.get("tco_meta", {})
+        st.session_state.step         = data.get("step", 1)
+        st.session_state.all_alerts   = data.get("all_alerts", [])
+        st.session_state.merged_df    = data.get("merged_df")
+        st.session_state.current_project = name
+        
+        log.info("Projet chargé : %s", name)
+        return True, f"Projet '{name}' chargé."
+    except Exception as e:
+        log.error("Erreur chargement projet %s : %s", name, e)
+        return False, f"Erreur de lecture : {e}"
+
+
+def list_projects():
+    """Liste les noms de projets disponibles."""
+    if not os.path.exists(PROJECTS_DIR):
+        return []
+    files = [f for f in os.listdir(PROJECTS_DIR) if f.endswith(".tco")]
+    return sorted([os.path.splitext(f)[0] for f in files])
+
+
+def delete_project(name):
+    """Supprime un fichier projet."""
+    path = os.path.join(PROJECTS_DIR, f"{name}.tco")
+    if os.path.exists(path):
+        os.remove(path)
+        log.info("Projet supprimé : %s", name)
+        return True
+    return False
+
+
+# ---------------------------------------------------------------------------
 # Theme toggle
 # ---------------------------------------------------------------------------
 
@@ -159,8 +235,51 @@ with st.sidebar:
         st.image("odetec_logo.png", width="stretch")
     
     st.markdown("---")
-    st.markdown("### 📂 Administratif")
-    st.info("📑 Export du TCO")
+    st.markdown("### 📋 Mes Projets")
+    
+    # Liste des projets existants (Direct Click)
+    projects = list_projects()
+    if projects:
+        for p in projects:
+            # Button style handled by CSS
+            if st.button(f"📄  {p}", key=f"load_{p}", use_container_width=True):
+                ok, msg = load_project(p)
+                if ok: st.rerun()
+                else: st.error(msg)
+    else:
+        st.caption("Aucun projet sauvegardé.")
+
+    st.markdown("---")
+    st.markdown("### 🏗️ Gestion")
+    
+    curr_name = st.session_state.get("current_project", "")
+    proj_name = st.text_input(
+        "Titre du projet", 
+        value=curr_name,
+        placeholder="Entrez le nom...",
+        key="proj_title_input",
+        label_visibility="collapsed"
+    )
+    
+    if st.button("💾 Sauvegarder", use_container_width=True, type="primary"):
+        if proj_name:
+            ok, msg = save_project(proj_name)
+            if ok: st.success(msg)
+            else: st.error(msg)
+            st.rerun()
+        else:
+            st.warning("Nom requis.")
+
+    if st.button("🆕 Nouveau Projet", use_container_width=True):
+        for k in ["tco_df", "company_data", "tco_meta", "step", "merged_df", "all_alerts", "current_project"]:
+            if k in st.session_state: del st.session_state[k]
+        st.rerun()
+    
+    if projects:
+        with st.expander("🗑️ Administration"):
+            to_del = st.selectbox("Supprimer un projet", [""] + projects, key="del_select")
+            if to_del and st.button(f"Confirmer la suppression"):
+                if delete_project(to_del): st.rerun()
     
     st.markdown("---")
     st.markdown("### ⚙️ Paramètres")
@@ -320,6 +439,53 @@ html, body, [class*="css"] {{ font-family: 'Inter', sans-serif; }}
     background: linear-gradient(135deg, #218838 0%, #19692c 100%) !important;
 }}
 
+
+/* ── Sidebar ───────────────────────────────────────────── */
+[data-testid="stSidebar"] {{
+    border-right: 1px solid var(--border);
+}}
+[data-testid="stSidebar"] .stMarkdown h3 {{
+    font-size: 0.9rem !important;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--accent) !important;
+    margin-bottom: 0.5rem !important;
+    margin-top: 1.5rem !important;
+}}
+/* Style pour les boutons de navigation (projets) dans la sidebar */
+[data-testid="stSidebar"] .stButton button {{
+    background-color: transparent !important;
+    color: var(--text) !important;
+    border: 1px solid transparent !important;
+    text-align: left !important;
+    display: flex !important;
+    justify-content: flex-start !important;
+    padding: 10px 15px !important;
+    font-weight: 500 !important;
+    font-size: 0.95rem !important;
+    border-radius: 8px !important;
+    margin-bottom: 4px !important;
+    width: 100% !important;
+    transition: all 0.2s ease !important;
+}}
+[data-testid="stSidebar"] .stButton button:hover {{
+    background-color: var(--surface-alt) !important;
+    border-color: var(--border) !important;
+    color: var(--accent) !important;
+    transform: translateX(4px) !important;
+}}
+/* Style spécifique pour le bouton 'Nouveau' ou 'Sauvegarder' pour les distinguer */
+[data-testid="stSidebar"] .stButton button[kind="primary"] {{
+    background: linear-gradient(135deg, var(--accent-deep) 0%, var(--accent) 100%) !important;
+    color: white !important;
+    border: none !important;
+    margin-top: 10px !important;
+    justify-content: center !important;
+}}
+[data-testid="stSidebar"] .stButton button[kind="primary"]:hover {{
+    transform: translateY(-2px) !important;
+    box-shadow: 0 4px 12px var(--shadow) !important;
+}}
 
 /* ── Metrics ──────────────────────────────────────────── */
 [data-testid="stMetric"] {{
