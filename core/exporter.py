@@ -176,28 +176,137 @@ def export_tco(merged_df, meta, output_path=None, alerts=None):
 
     # --- ROWS 3+ : Données ---
     excel_row = 3
+    
+    # Tracking pour les formules dynamiques
+    section_articles  = {} # { '01.1': [row_idx, ...], ... }
+    section_total_row = {} # { '01.1': row_idx, ... }
+    recap_summary_rows = [] # [row_idx, ...]
+    
+    current_section_code = None
+    
+    # On fait un premier passage pour identifier les lignes et types si nécessaire ?
+    # Non, on peut faire en un passage car les articles précèdent leurs totaux,
+    # et les totaux précèdent le récap (généralement).
+    
     for _, row in merged_df.iterrows():
         row_type = row["row_type"]
         if row_type == "empty":
             continue
 
-        code = row["Code"]
+        code  = str(row.get("Code", "")).strip()
+        desig = str(row.get("Désignation", "")).strip().lower()
+
+        # Maj de la section courante
+        if row_type == "section_header":
+            current_section_code = code
+            if current_section_code not in section_articles:
+                section_articles[current_section_code] = []
 
         ws.cell(row=excel_row, column=1, value=code)
         ws.cell(row=excel_row, column=2, value=row["Désignation"])
         ws.cell(row=excel_row, column=3, value=row.get("Qu."))
         ws.cell(row=excel_row, column=4, value=row.get("U"))
         ws.cell(row=excel_row, column=5, value=row.get("Px_U_HT"))
-        ws.cell(row=excel_row, column=6, value=row.get("Px_Tot_HT"))
+        
+        # --- Colonne F : TCO / Estimation ---
+        if row_type == "article":
+            if current_section_code:
+                section_articles[current_section_code].append(excel_row)
+            ws.cell(row=excel_row, column=6, value=f"=C{excel_row}*E{excel_row}")
+            
+        elif row_type == "recap":
+            # Total de la section (ligne grise)
+            rows = section_articles.get(current_section_code, [])
+            if rows:
+                formula = "=SUM(" + ",".join([f"F{r}" for r in rows]) + ")"
+                ws.cell(row=excel_row, column=6, value=formula)
+            else:
+                ws.cell(row=excel_row, column=6, value=0)
+            section_total_row[current_section_code] = excel_row
+            
+        elif row_type == "recap_summary":
+            # Ligne dans le tableau final récapitulatif
+            recap_summary_rows.append(excel_row)
+            # On cherche à lier au total de la section correspondante
+            # On suppose que le code du récap correspond au code de la section
+            target_row = section_total_row.get(code)
+            if target_row:
+                ws.cell(row=excel_row, column=6, value=f"=F{target_row}")
+            else:
+                ws.cell(row=excel_row, column=6, value=row.get("Px_Tot_HT")) # Fallback
+                
+        elif "montant ht" in desig:
+            # Grand Total HT
+            if recap_summary_rows:
+                formula = "=SUM(" + ",".join([f"F{r}" for r in recap_summary_rows]) + ")"
+                ws.cell(row=excel_row, column=6, value=formula)
+            else:
+                ws.cell(row=excel_row, column=6, value=row.get("Px_Tot_HT"))
+            ht_row_idx = excel_row
+            
+        elif "tva" in desig and "ht" not in desig:
+            if 'ht_row_idx' in locals() and ht_row_idx:
+                ws.cell(row=excel_row, column=6, value=f"=F{ht_row_idx}*0.2")
+                tva_row_idx = excel_row
+            else:
+                ws.cell(row=excel_row, column=6, value=row.get("Px_Tot_HT"))
+                
+        elif "montant ttc" in desig:
+            if 'ht_row_idx' in locals() and 'tva_row_idx' in locals() and ht_row_idx and tva_row_idx:
+                ws.cell(row=excel_row, column=6, value=f"=F{ht_row_idx}+F{tva_row_idx}")
+            else:
+                ws.cell(row=excel_row, column=6, value=row.get("Px_Tot_HT"))
+        else:
+            ws.cell(row=excel_row, column=6, value=row.get("Px_Tot_HT"))
 
+        # --- Colonnes Entreprises ---
         col_offset = 7
         for comp in companies:
             ws.cell(row=excel_row, column=col_offset,     value=row.get(f"{comp}_Qu."))
             ws.cell(row=excel_row, column=col_offset + 1, value=row.get(f"{comp}_Px_U_HT"))
-            ws.cell(row=excel_row, column=col_offset + 2, value=row.get(f"{comp}_Px_Tot_HT"))
+            
+            qu_col  = get_column_letter(col_offset)
+            px_col  = get_column_letter(col_offset + 1)
+            tot_col = get_column_letter(col_offset + 2)
+            
+            if row_type == "article":
+                ws.cell(row=excel_row, column=col_offset + 2, value=f"={qu_col}{excel_row}*{px_col}{excel_row}")
+            elif row_type == "recap":
+                rows = section_articles.get(current_section_code, [])
+                if rows:
+                    formula = f"=SUM(" + ",".join([f"{tot_col}{r}" for r in rows]) + ")"
+                    ws.cell(row=excel_row, column=col_offset + 2, value=formula)
+                else:
+                    ws.cell(row=excel_row, column=col_offset + 2, value=0)
+            elif row_type == "recap_summary":
+                target_row = section_total_row.get(code)
+                if target_row:
+                    ws.cell(row=excel_row, column=col_offset + 2, value=f"={tot_col}{target_row}")
+                else:
+                    ws.cell(row=excel_row, column=col_offset + 2, value=row.get(f"{comp}_Px_Tot_HT"))
+            elif "montant ht" in desig:
+                if recap_summary_rows:
+                    formula = f"=SUM(" + ",".join([f"{tot_col}{r}" for r in recap_summary_rows]) + ")"
+                    ws.cell(row=excel_row, column=col_offset + 2, value=formula)
+                else:
+                    ws.cell(row=excel_row, column=col_offset + 2, value=row.get(f"{comp}_Px_Tot_HT"))
+            elif "tva" in desig and "ht" not in desig:
+                if 'ht_row_idx' in locals() and ht_row_idx:
+                    ws.cell(row=excel_row, column=col_offset + 2, value=f"={tot_col}{ht_row_idx}*0.2")
+                else:
+                    ws.cell(row=excel_row, column=col_offset + 2, value=row.get(f"{comp}_Px_Tot_HT"))
+            elif "montant ttc" in desig:
+                if 'ht_row_idx' in locals() and 'tva_row_idx' in locals() and ht_row_idx and tva_row_idx:
+                    ws.cell(row=excel_row, column=col_offset + 2, value=f"={tot_col}{ht_row_idx}+{tot_col}{tva_row_idx}")
+                else:
+                    ws.cell(row=excel_row, column=col_offset + 2, value=row.get(f"{comp}_Px_Tot_HT"))
+            else:
+                ws.cell(row=excel_row, column=col_offset + 2, value=row.get(f"{comp}_Px_Tot_HT"))
+                
             ws.cell(row=excel_row, column=col_offset + 3, value=row.get(f"{comp}_Commentaire"))
             col_offset += 4
 
+        # Style ...
         font, fill = _get_row_style(row_type)
         for c in range(1, max_col + 1):
             cell = ws.cell(row=excel_row, column=c)

@@ -27,7 +27,7 @@ MAX_FILE_SIZE_MB   = 20          # Taille max par fichier uploadé
 # Entreprises
 # ---------------------------------------------------------------------------
 
-MAX_COMPANIES = 10               # Nombre max d'entreprises simultanées
+MAX_COMPANIES = 100               # Nombre max d'entreprises simultanées
 COMPANY_NAME_MAX_LEN = 60        # Longueur max du nom d'entreprise
 
 # ---------------------------------------------------------------------------

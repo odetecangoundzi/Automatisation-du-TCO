@@ -45,7 +45,7 @@ st.set_page_config(
     page_title=APP_TITLE,
     page_icon=APP_ICON,
     layout="wide",
-    initial_sidebar_state="collapsed",
+    initial_sidebar_state="expanded",
 )
 
 os.makedirs(UPLOAD_DIR, exist_ok=True)
@@ -136,32 +136,295 @@ def display_alerts(alerts, title="Alertes"):
             st.write(f"{icon} **{a.get('code', '')}** — {a.get('message', '')}")
 
 
-def display_preview(df, title="Aperçu", n_rows=20):
+def display_preview(df, title="Aperçu"):
     hidden = {"Entete", "row_type", "original_row", "parent_code"}
     cols   = [c for c in df.columns if c not in hidden]
-    st.write(f"**{title}** ({len(df)} lignes)")
-    preview = df[df["row_type"] != "empty"][cols].head(n_rows)
-    st.dataframe(preview, use_container_width=True, hide_index=True)
+    hidden_types = {"empty", "recap", "recap_summary", "total_line", "total_text"}
+    visible = df[~df["row_type"].isin(hidden_types)][cols]
+    st.write(f"**{title}** ({len(visible)} lignes)")
+    st.dataframe(visible, width="stretch", hide_index=True, height=500)
 
 
 # ---------------------------------------------------------------------------
-# CSS
+# Theme toggle
 # ---------------------------------------------------------------------------
 
-st.markdown("""
+# ---------------------------------------------------------------------------
+# Sidebar & Logo
+# ---------------------------------------------------------------------------
+
+with st.sidebar:
+    # Logo Odetec
+    if os.path.exists("odetec_logo.png"):
+        st.image("odetec_logo.png", width="stretch")
+    
+    st.markdown("---")
+    st.markdown("### 📂 Administratif")
+    st.info("📑 Export du TCO")
+    
+    st.markdown("---")
+    st.markdown("### ⚙️ Paramètres")
+    
+    if "dark_mode" not in st.session_state:
+        st.session_state.dark_mode = False
+    
+    dark = st.toggle("🌙 Mode sombre", value=st.session_state.dark_mode)
+    if dark != st.session_state.dark_mode:
+        st.session_state.dark_mode = dark
+        st.rerun()
+
+is_dark = st.session_state.dark_mode
+
+# ---------------------------------------------------------------------------
+# CSS — Design system avec variables de thème
+# ---------------------------------------------------------------------------
+
+if is_dark:
+    theme_vars = """
+    :root {
+        --bg:           #0e1117;
+        --surface:      #1a1f2e;
+        --surface-alt:  #232940;
+        --border:       #2d3553;
+        --border-hover: #4472C4;
+        --text:         #e8ecf1;
+        --text-muted:   #8a94a8;
+        --accent:       #5b9bd5;
+        --accent-deep:  #4472C4;
+        --accent-dark:  #2F5496;
+        --shadow:       rgba(0,0,0,0.35);
+        --shadow-light: rgba(0,0,0,0.18);
+        --card-bg:      linear-gradient(145deg, #1a1f2e 0%, #232940 100%);
+        --metric-bg:    linear-gradient(145deg, #1a1f2e, #1e2538);
+        --legend-bg:    #1a1f2e;
+        --legend-border:#2d3553;
+        --legend-text:  #8a94a8;
+    }
+    /* Force Streamlit dark overrides */
+    .stApp, [data-testid="stAppViewContainer"] { background-color: #0e1117 !important; }
+    .stMarkdown, .stMarkdown p, .stText { color: #e8ecf1 !important; }
+    [data-testid="stSidebar"] { background-color: #151923 !important; }
+    """
+else:
+    theme_vars = """
+    :root {
+        --bg:           #ffffff;
+        --surface:      #ffffff;
+        --surface-alt:  #f4f7fb;
+        --border:       #d8e2ef;
+        --border-hover: #4472C4;
+        --text:         #1a1a2e;
+        --text-muted:   #8899aa;
+        --accent:       #4472C4;
+        --accent-deep:  #2F5496;
+        --accent-dark:  #1a3a6e;
+        --shadow:       rgba(47,84,150,0.25);
+        --shadow-light: rgba(0,0,0,0.04);
+        --card-bg:      linear-gradient(145deg, #ffffff 0%, #f4f7fb 100%);
+        --metric-bg:    linear-gradient(145deg, #ffffff, #f8fafd);
+        --legend-bg:    #f9fafb;
+        --legend-border:#eee;
+        --legend-text:  #555;
+    }
+    """
+
+st.markdown(f"""
 <style>
-.main-title   { text-align:center; color:#2F5496; margin-bottom:.5rem; }
-.step-header  {
-    background: linear-gradient(135deg,#2F5496,#4472C4);
-    color:white; padding:12px 20px; border-radius:8px; margin:1rem 0 .5rem;
-}
-.company-card {
-    background:#f8f9fa; border:1px solid #dee2e6;
-    border-radius:8px; padding:10px 14px; margin:3px 0;
-}
-.legend-box { display:flex; gap:1rem; flex-wrap:wrap; margin:.5rem 0; }
-.legend-item { display:flex; align-items:center; gap:.3rem; font-size:.85rem; }
-.color-dot   { width:14px; height:14px; border-radius:3px; display:inline-block; }
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
+{theme_vars}
+
+/* ── Global ───────────────────────────────────────────── */
+html, body, [class*="css"] {{ font-family: 'Inter', sans-serif; }}
+.block-container {{ max-width: 1200px; padding-top: 2rem; }}
+
+/* ── Title ────────────────────────────────────────────── */
+.main-title {{
+    text-align: center;
+    font-size: 2.4rem;
+    font-weight: 700;
+    background: linear-gradient(135deg, var(--accent-dark) 0%, var(--accent) 60%, #6ca0dc 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    margin-bottom: .2rem;
+    letter-spacing: -.5px;
+}}
+.subtitle {{
+    text-align: center;
+    color: var(--text-muted);
+    font-size: .95rem;
+    margin-bottom: 1.2rem;
+}}
+
+/* ── Step headers ─────────────────────────────────────── */
+.step-header {{
+    background: linear-gradient(135deg, var(--accent-dark) 0%, var(--accent-deep) 50%, var(--accent) 100%);
+    color: white;
+    padding: 14px 24px;
+    border-radius: 10px;
+    margin: 1.5rem 0 .8rem;
+    font-size: 1.05rem;
+    font-weight: 600;
+    letter-spacing: .3px;
+    box-shadow: 0 4px 15px var(--shadow);
+}}
+
+/* ── Company cards ────────────────────────────────────── */
+.company-card {{
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-left: 4px solid var(--accent);
+    border-radius: 10px;
+    padding: 12px 18px;
+    margin: 6px 0;
+    transition: all .2s ease;
+    box-shadow: 0 1px 4px var(--shadow-light);
+    color: var(--text);
+}}
+.company-card:hover {{
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px var(--shadow);
+    border-left-color: var(--accent-dark);
+}}
+
+/* ── Buttons ──────────────────────────────────────────── */
+.stButton > button {{
+    border-radius: 8px;
+    font-weight: 600;
+    padding: 0.5rem 1.2rem;
+    transition: all .2s ease;
+    border: none;
+}}
+.stButton > button:hover {{
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+}}
+.stButton > button[kind="primary"] {{
+    background: linear-gradient(135deg, var(--accent-deep) 0%, var(--accent) 100%);
+}}
+
+/* ── Final Export Button ─────────────────────────────── */
+[data-testid="stDownloadButton"] button {{
+    background: linear-gradient(135deg, #28a745 0%, #1e7e34 100%) !important;
+    color: white !important;
+    border: none !important;
+    padding: 0.7rem 2rem !important;
+    font-size: 1rem !important;
+    font-weight: 700 !important;
+    box-shadow: 0 4px 15px rgba(40, 167, 69, 0.25) !important;
+    transition: all .2s ease !important;
+}}
+[data-testid="stDownloadButton"] button:hover {{
+    transform: translateY(-2px) !important;
+    box-shadow: 0 6px 20px rgba(40, 167, 69, 0.4) !important;
+    background: linear-gradient(135deg, #218838 0%, #19692c 100%) !important;
+}}
+
+
+/* ── Metrics ──────────────────────────────────────────── */
+[data-testid="stMetric"] {{
+    background: var(--metric-bg);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 12px 16px;
+    box-shadow: 0 1px 6px var(--shadow-light);
+}}
+[data-testid="stMetricLabel"] {{ font-size: .85rem; font-weight: 600; color: var(--text-muted); }}
+[data-testid="stMetricValue"] {{ font-size: 1.4rem; font-weight: 700; color: var(--accent-dark); }}
+
+/* ── Alerts legend ────────────────────────────────────── */
+.legend-box {{
+    display: flex; gap: 1.2rem; flex-wrap: wrap;
+    margin: .6rem 0; padding: 8px 14px;
+    background: var(--legend-bg); border-radius: 8px;
+    border: 1px solid var(--legend-border);
+}}
+.legend-item {{ display: flex; align-items: center; gap: .4rem; font-size: .82rem; color: var(--legend-text); }}
+.color-dot   {{ width: 12px; height: 12px; border-radius: 50%; display: inline-block; box-shadow: inset 0 -1px 2px rgba(0,0,0,.1); }}
+
+/* ── File uploader ────────────────────────────────────── */
+[data-testid="stFileUploader"] {{
+    border: 2px dashed var(--border);
+    border-radius: 10px;
+    padding: 12px;
+    transition: border-color .2s;
+}}
+[data-testid="stFileUploader"]:hover {{ border-color: var(--accent); }}
+/* Simplification extrême de l'uploader */
+[data-testid="stFileUploader"] section {{
+    padding: 0 !important;
+}}
+[data-testid="stFileUploader"] section > div {{
+    padding: 1rem !important;
+    min-height: 100px !important;
+}}
+
+/* Masquer tout ce qui est texte natif (Anglais) */
+[data-testid="stFileUploader"] section [data-testid="stMarkdownContainer"],
+[data-testid="stFileUploader"] section small,
+[data-testid="stFileUploader"] section p {{
+    display: none !important;
+}}
+
+/* Juste une icône et un petit rappel de format en français */
+[data-testid="stFileUploader"] section > div::after {{
+    content: "� Déposer le fichier Excel ici";
+    font-size: 0.9rem;
+    color: var(--text-muted);
+}}
+
+/* Style minimaliste du bouton 'Parcourir' uniquement */
+[data-testid="stFileUploader"] button[kind="secondary"] {{
+    font-size: 0 !important;
+    padding: 0.4rem 1.2rem !important;
+    border: 1px solid var(--border) !important;
+    background: transparent !important;
+    border-radius: 6px !important;
+}}
+[data-testid="stFileUploader"] button[kind="secondary"]::after {{
+    content: "Parcourir";
+    font-size: 0.85rem;
+    color: var(--text);
+}}
+
+/* Masquer le texte parasite sur le bouton d'aide (?) s'il existe */
+[data-testid="stFileUploader"] button[aria-label*="Help"]::after,
+[data-testid="stFileUploader"] button[aria-label*="aide"]::after {{
+    content: "" !important;
+    display: none !important;
+}}
+
+/* Style du bouton 'Retirer' (le X) */
+[data-testid="stFileUploader"] button[aria-label*="Remove"],
+[data-testid="stFileUploader"] button[aria-label*="supprimer"] {{
+    font-size: 0 !important;
+}}
+[data-testid="stFileUploader"] button[aria-label*="Remove"]::after,
+[data-testid="stFileUploader"] button[aria-label*="supprimer"]::after {{
+    content: "Retirer";
+    font-size: 0.85rem;
+    margin-left: 0.5rem;
+    color: var(--text-muted);
+}}
+
+[data-testid="stFileUploader"] button:hover {{
+    border-color: var(--accent) !important;
+    background: var(--surface-alt) !important;
+}}
+
+
+/* ── Dataframe ────────────────────────────────────────── */
+[data-testid="stDataFrame"] {{
+    border-radius: 8px;
+    overflow: hidden;
+    border: 1px solid var(--border);
+}}
+
+/* ── Divider ──────────────────────────────────────────── */
+hr {{ border: none; border-top: 1px solid var(--border); margin: 1.2rem 0; }}
+
+/* ── Footer ───────────────────────────────────────────── */
+footer {{ visibility: hidden; }}
 </style>
 """, unsafe_allow_html=True)
 
@@ -190,21 +453,7 @@ for k, v in defaults.items():
 # Header + progress
 # ---------------------------------------------------------------------------
 
-st.markdown(f"<h1 class='main-title'>{APP_ICON} {APP_TITLE}</h1>", unsafe_allow_html=True)
-st.markdown(
-    "<p style='text-align:center;color:#666;'>"
-    "Automatisez l'intégration des DPGF entreprises dans votre TCO"
-    "</p>", unsafe_allow_html=True,
-)
-
-labels = ["1️⃣ TCO Modèle", "2️⃣ DPGF Entreprises", "3️⃣ Résultat & Export"]
-step_cols = st.columns(3)
-for i, (col, label) in enumerate(zip(step_cols, labels)):
-    with col:
-        if   st.session_state.step > i + 1:  st.success(label)
-        elif st.session_state.step == i + 1: st.info(label)
-        else:                                 st.write(label)
-
+st.markdown("<h1 style='text-align: center; margin-bottom: 1rem;'>Export du TCO</h1>", unsafe_allow_html=True)
 st.divider()
 
 
@@ -214,14 +463,15 @@ st.divider()
 
 if st.session_state.step >= 1:
     st.markdown(
-        "<div class='step-header'>📥 Étape 1 — Importer le TCO Modèle</div>",
+        "<div class='step-header'>📥 Etape 1 : importer le modèle vierge</div>",
         unsafe_allow_html=True,
     )
     st.caption("Fichier DPGF LOT (.xlsx) — Colonnes : Code | Désignation | Qu. | U. | Px U. | Px tot.")
 
     tco_file = st.file_uploader(
-        "Charger le TCO modèle", type=["xlsx"], key="tco_upload",
+        "Charger Le DPGF Modèle", type=["xlsx"], key="tco_upload",
         help="Fichier DPGF LOT servant de base",
+        label_visibility="visible"
     )
 
     if tco_file and st.session_state.tco_df is None:
@@ -249,7 +499,8 @@ if st.session_state.step >= 1:
                     except: pass
 
     if st.session_state.tco_df is not None:
-        display_preview(st.session_state.tco_df, "Aperçu du TCO")
+        # Enlever l'aperçu à l'étape 1 (demandé)
+        # display_preview(st.session_state.tco_df, "Aperçu du TCO")
         if st.session_state.step == 1:
             if st.button("✅ Valider le TCO et continuer", type="primary"):
                 st.session_state.step = 2
@@ -262,23 +513,12 @@ if st.session_state.step >= 1:
 
 if st.session_state.step >= 2:
     st.markdown(
-        "<div class='step-header'>📥 Étape 2 — Gérer les DPGF Entreprises</div>",
+        "<div class='step-header'>📥 Etape 2 : charger les DPGF fournis par les entreprises</div>",
         unsafe_allow_html=True,
     )
 
-    col_tva, _ = st.columns([1, 3])
-    with col_tva:
-        tva_label = st.selectbox(
-            "Taux de TVA", list(TVA_OPTIONS.keys()),
-            index=list(TVA_OPTIONS.values()).index(st.session_state.tva_rate),
-        )
-        new_tva = TVA_OPTIONS[tva_label]
-        if new_tva != st.session_state.tva_rate:
-            st.session_state.tva_rate = new_tva
-            rebuild_merged_tco(new_tva)
-            st.rerun()
-
     st.divider()
+    
     
     # UX-4 : Confirmation de suppression (Dialogue modal simulé)
     if st.session_state.confirm_remove:
@@ -325,14 +565,28 @@ if st.session_state.step >= 2:
         st.warning(f"⚠️ Limite de {MAX_COMPANIES} entreprises atteinte.")
     else:
         st.write("**Ajouter une entreprise :**")
+        dpgf_key = f"dpgf_{st.session_state.upload_counter}"
+        name_key = f"name_{st.session_state.upload_counter}"
+
         col1, col2 = st.columns([2, 1])
         with col1:
             dpgf_file = st.file_uploader(
                 "Charger un DPGF entreprise", type=["xlsx"],
-                key=f"dpgf_{st.session_state.upload_counter}",
+                key=dpgf_key,
             )
+        
+        # UX : Auto-fill du nom de l'entreprise si un fichier est chargé
+        # On utilise une clé de suivi pour détecter le changement de fichier
+        file_tracker_key = f"tracker_{st.session_state.upload_counter}"
+        if dpgf_file:
+            if st.session_state.get(file_tracker_key) != dpgf_file.name:
+                filename_clean = os.path.splitext(dpgf_file.name)[0]
+                suggested_name = re.sub(r"^DPGF\s+", "", filename_clean, flags=re.IGNORECASE)
+                st.session_state[name_key] = suggested_name.upper()
+                st.session_state[file_tracker_key] = dpgf_file.name
+
         with col2:
-            raw_name = st.text_input("Nom de l'entreprise", placeholder="Ex: MAB SUD-OUEST")
+            raw_name = st.text_input("Nom de l'entreprise", key=name_key, placeholder="Ex: MAB SUD-OUEST")
 
         if dpgf_file and raw_name:
             company_name, name_err = _validate_company_name(raw_name)
@@ -341,39 +595,45 @@ if st.session_state.step >= 2:
             elif company_name in st.session_state.company_data:
                 st.warning(f"⚠️ **{company_name}** est déjà importée.")
             else:
-                if st.button("🔗 Fusionner ce DPGF", type="primary"):
-                    path = _safe_save(dpgf_file)
-                    if path:
-                        with st.spinner(f"🔄 Traitement de {company_name}..."):
-                            try:
-                                dpgf_df, parse_alerts = parse_dpgf(path)
-                                n_matched = len(dpgf_df[dpgf_df["row_type"].isin(["article", "sub_section"])])
-                                
-                                st.session_state.company_data[company_name] = {
-                                    "dpgf_df":      dpgf_df,
-                                    "parse_alerts": parse_alerts,
-                                    "filename":     dpgf_file.name,
-                                }
-                                rebuild_merged_tco(st.session_state.tva_rate)
-                                st.session_state.upload_counter += 1
-                                st.success(f"✅ **{company_name}** fusionnée — {n_matched} postes")
-                                if parse_alerts: display_alerts(parse_alerts, company_name)
-                                st.rerun()
-                            except Exception as e:
-                                log.error("Erreur fusion DPGF %s", company_name, exc_info=True)
-                                st.error(f"❌ Erreur : {e}")
-                            finally:
-                                try: os.remove(path)
-                                except: pass
+                # Automatisme : Fusion au chargement
+                path = _safe_save(dpgf_file)
+                if path:
+                    with st.spinner(f"🔄 Traitement de {company_name}..."):
+                        try:
+                            dpgf_df, parse_alerts = parse_dpgf(path)
+                            n_matched = len(dpgf_df[dpgf_df["row_type"].isin(["article", "sub_section"])])
+                            
+                            st.session_state.company_data[company_name] = {
+                                "dpgf_df":      dpgf_df,
+                                "parse_alerts": parse_alerts,
+                                "filename":     dpgf_file.name,
+                            }
+                            rebuild_merged_tco(st.session_state.tva_rate)
+                            st.session_state.upload_counter += 1
+                            # Succès affiché seulement si pas de message d'erreur persistant
+                            # st.success(f"✅ **{company_name}** fusionnée — {n_matched} postes")
+                            # if parse_alerts: display_alerts(parse_alerts, company_name)
+                            st.rerun()
+                        except Exception as e:
+                            log.error("Erreur fusion DPGF %s", company_name, exc_info=True)
+                            st.error(f"❌ Erreur : {e}")
+                        finally:
+                            try: os.remove(path)
+                            except: pass
 
-    if st.session_state.company_data:
-        display_preview(st.session_state.merged_df, f"TCO fusionné ({n_companies} entreprise(s))")
+    # Enlever le preview à l'étape 2 (demandé)
+    # if st.session_state.company_data:
+    #     display_preview(st.session_state.merged_df, f"TCO fusionné ({n_companies} entreprise(s))")
 
     col_nav1, col_nav2 = st.columns(2)
     with col_nav1:
         if st.session_state.company_data:
             if st.button("➡️ Passer au résultat final", type="primary"):
                 st.session_state.step = 3
+                # Reset export buffer to ensure fresh data
+                if "export_buffer" in st.session_state:
+                    del st.session_state.export_buffer
+                st.session_state.export_done = False
                 st.rerun()
     with col_nav2:
         if st.button("🔄 Tout réinitialiser"):
@@ -405,31 +665,20 @@ if st.session_state.step >= 3:
 
     # Stats
     art_rows = merged[merged["row_type"] == "article"]
-    montant_ht = None
-    for _, row in merged.iterrows():
-        if row["row_type"] == "total_line":
-            desig = str(row.get("Désignation", "")).strip().lower()
-            if "montant ht" in desig:
-                for comp in st.session_state.company_data:
-                    v = row.get(f"{comp}_Px_Tot_HT")
-                    if v and v != 0:
-                        montant_ht = v
-                        break
-                break
 
-    cols = st.columns(4)
+    cols = st.columns(3)
     with cols[0]: st.metric("📋 Articles",   len(art_rows))
     with cols[1]: st.metric("🏢 Entreprises", len(st.session_state.company_data))
     with cols[2]: st.metric("⚠️ Alertes",    len(st.session_state.all_alerts))
-    with cols[3]: st.metric("💰 Montant HT", f"{montant_ht:,.2f} €" if montant_ht else "N/A")
 
-    display_preview(merged, "TCO Final Consolidé", n_rows=50)
+    display_preview(merged, "TCO Final Consolidé")
 
     if st.session_state.all_alerts:
         display_alerts(st.session_state.all_alerts, "Toutes les alertes")
 
     if st.button("⬅️ Retour — Modifier les entreprises"):
         st.session_state.step = 2
+        st.session_state.export_done = False
         st.rerun()
 
     st.divider()
@@ -437,27 +686,39 @@ if st.session_state.step >= 3:
     timestamp  = datetime.now().strftime("%Y%m%d_%H%M%S")
     filename   = f"TCO_FINAL_{timestamp}.xlsx"
 
-    if st.button("📥 Exporter le TCO Final (.xlsx)", type="primary"):
-        with st.spinner("🔄 Génération du fichier Excel..."):
-            try:
-                buffer = export_tco(
+    # Pré-génération du buffer pour téléchargement immédiat
+    try:
+        if "export_buffer" not in st.session_state:
+            with st.spinner("🔄 Préparation du fichier..."):
+                st.session_state.export_buffer = export_tco(
                     st.session_state.merged_df,
                     st.session_state.tco_meta,
                     output_path=None,
                     alerts=st.session_state.all_alerts,
                 )
-                st.download_button(
-                    label=f"⬇️ Télécharger {filename}",
-                    data=buffer,
-                    file_name=filename,
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    type="primary",
-                )
-                st.success("✅ Fichier prêt au téléchargement.")
-                log.info("Export réussi : %s", filename)
-            except Exception as e:
-                log.error("Erreur export Excel", exc_info=True)
-                st.error(f"❌ Erreur d'export : {e}")
+        
+        def on_export_click():
+            st.session_state.export_done = True
+
+        st.download_button(
+            label="📥 Exporter le TCO Final (.xlsx)",
+            data=st.session_state.export_buffer,
+            file_name=filename,
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            type="primary",
+            on_click=on_export_click,
+            width="stretch"
+        )
+        
+        if st.session_state.get("export_done"):
+            st.success("✅ Téléchargement OK")
+            # Optionnel : masquer après quelques secondes ou au prochain rerun ? 
+            # Streamlit garde le message jusqu'au prochain changement d'état.
+            log.info("Export téléchargé : %s", filename)
+
+    except Exception as e:
+        log.error("Erreur préparation export", exc_info=True)
+        st.error(f"❌ Erreur de génération : {e}")
 
 st.divider()
 st.caption(f"{APP_TITLE} v{2.1} — TCO Automator")
