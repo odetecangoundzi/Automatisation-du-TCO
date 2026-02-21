@@ -117,12 +117,63 @@ def merge_company_into_tco(tco_df, dpgf_df, company_name):
             merged_df.at[idx, col_com] = dpgf_row.get("Commentaire", "")
             matched_count += 1
         else:
-            alerts.append({
-                "type":    "warning",
-                "color":   "orange",
-                "code":    code,
-                "message": f"Code '{code}' du DPGF non trouvé dans le TCO",
-            })
+            # DYNAMIC INSERTION
+            # On tente d'insérer juste avant le récapitualtif de sa section parente
+            # Format attendu : XX.YY.ZZ -> Parent est XX.YY
+            parent_code = ".".join(code.split(".")[:-1])
+            
+            # On cherche la ligne 'recap' pour ce parent
+            found_insertion = False
+            for idx, row in merged_df.iterrows():
+                if row["row_type"] == "recap" and _normalize_code(row.get("parent_code", "")) == parent_code:
+                    # On a trouvé la ligne de récapitulatif de la section
+                    # On insère juste au dessus
+                    new_row = {
+                        "Code": code,
+                        "Désignation": dpgf_row["Désignation"],
+                        "Qu.": None, "U": dpgf_row.get("U", ""), "Px_U_HT": None, "Px_Tot_HT": None,
+                        "row_type": "article",
+                        "parent_code": parent_code
+                    }
+                    # Initialisation des colonnes entreprises connues
+                    for col in merged_df.columns:
+                        if any(suffix in col for suffix in ["_Qu.", "_Px_U_HT", "_Px_Tot_HT", "_Commentaire"]):
+                            new_row[col] = None
+                    
+                    # Remplissage pour cette entreprise
+                    new_row[col_qu] = dpgf_row["Qu."]
+                    new_row[col_pu] = dpgf_row["Px_U_HT"]
+                    new_row[col_tot] = dpgf_row["Px_Tot_HT"]
+                    new_row[col_com] = dpgf_row.get("Commentaire", "")
+                    
+                    # Insertion dans le DataFrame
+                    # On crée un nouveau DataFrame de 1 ligne et on concat avec du slicing
+                    part1 = merged_df.iloc[:idx]
+                    part2 = merged_df.iloc[idx:]
+                    merged_df = pd.concat([part1, pd.DataFrame([new_row]), part2], ignore_index=True)
+                    
+                    # Mise à jour de l'index des codes pour les fusions suivantes
+                    # ATTENTION: pd.concat avec ignore_index change tous les indices
+                    # On doit reconstruire l'index
+                    tco_code_index = {}
+                    for i, r in merged_df.iterrows():
+                        c = _normalize_code(r["Code"])
+                        if c and r["row_type"] not in ("empty", "recap", "recap_summary"):
+                            if c not in tco_code_index:
+                                tco_code_index[c] = i
+                    
+                    matched_count += 1
+                    found_insertion = True
+                    log.info("Insertion dynamique article : %s dans section %s", code, parent_code)
+                    break
+            
+            if not found_insertion:
+                alerts.append({
+                    "type":    "warning",
+                    "color":   "orange",
+                    "code":    code,
+                    "message": f"Code '{code}' du DPGF non trouvé (parent inconnu)",
+                })
 
     log.info(
         "Fusion terminée : %d lignes matchées, %d non trouvées",
