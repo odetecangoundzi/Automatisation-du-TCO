@@ -273,6 +273,7 @@ with st.sidebar:
     if st.button("🆕 Nouveau Projet", use_container_width=True):
         for k in ["tco_df", "company_data", "tco_meta", "step", "merged_df", "all_alerts", "current_project"]:
             if k in st.session_state: del st.session_state[k]
+        st.session_state.step = 0
         st.rerun()
     
     if projects:
@@ -605,7 +606,7 @@ defaults = {
     "merged_df":     None,
     "all_alerts":    [],
     "company_data":  {},
-    "step":          1,
+    "step":          0,
     "upload_counter":0,
     "tva_rate":      TVA_DEFAULT,
     "confirm_remove":None,  # UX-4 : stocke le nom de l'entreprise à supprimer
@@ -616,11 +617,76 @@ for k, v in defaults.items():
 
 
 # ---------------------------------------------------------------------------
-# Header + progress
+# STEP 0 — Landing Page
 # ---------------------------------------------------------------------------
 
-st.markdown("<h1 style='text-align: center; margin-bottom: 1rem;'>Export du TCO</h1>", unsafe_allow_html=True)
-st.divider()
+if st.session_state.step == 0:
+    st.markdown("<div style='height: 4rem;'></div>", unsafe_allow_html=True)
+    
+    # Hero Section
+    col_logo_left, col_logo_mid, col_logo_right = st.columns([1, 2, 1])
+    with col_logo_mid:
+        if os.path.exists("odetec_logo.png"):
+            st.image("odetec_logo.png", use_container_width=True)
+        st.markdown(f"<h1 class='main-title'>{APP_TITLE}</h1>", unsafe_allow_html=True)
+        st.markdown("<p class='subtitle'>Solution intelligente pour la consolidation des DPGF et le remplissage du TCO.</p>", unsafe_allow_html=True)
+
+    st.markdown("<div style='height: 2rem;'></div>", unsafe_allow_html=True)
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        st.markdown("""
+        <div class='company-card' style='height: 100%; min-height: 250px; display: flex; flex-direction: column; justify-content: space-between;'>
+            <div>
+                <h3>🆕 Nouveau Projet</h3>
+                <p style='color: var(--text-muted);'>Commencez une nouvelle analyse en important un modèle de TCO vierge.</p>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        new_proj_name = st.text_input("Nom du futur projet", placeholder="Ex: Chantier Bordeaux - Lot 04", key="landing_new_proj_name", label_visibility="collapsed")
+        if st.button("🚀 Créer le projet", type="primary", use_container_width=True):
+            if new_proj_name:
+                st.session_state.current_project = new_proj_name
+                st.session_state.step = 1
+                st.rerun()
+            else:
+                st.warning("Veuillez saisir un nom de projet.")
+
+    with col2:
+        st.markdown("""
+        <div class='company-card' style='height: 100%; min-height: 250px; display: flex; flex-direction: column; justify-content: space-between;'>
+            <div>
+                <h3>📂 Ouvrir un Projet</h3>
+                <p style='color: var(--text-muted);'>Reprenez un travail en cours depuis vos sauvegardes locales.</p>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        projects = list_projects()
+        if projects:
+            selected_proj = st.selectbox("Choisir un projet", [""] + projects, key="landing_open_proj_select", label_visibility="collapsed")
+            if st.button("📂 Ouvrir", use_container_width=True) and selected_proj:
+                ok, msg = load_project(selected_proj)
+                if ok: 
+                    # If loaded, the step is usually >= 1. If it was 0, force it to 1
+                    if st.session_state.step == 0:
+                        st.session_state.step = 1
+                    st.rerun()
+                else: 
+                    st.error(msg)
+        else:
+            st.info("Aucun projet sauvegardé pour le moment.")
+
+
+# ---------------------------------------------------------------------------
+# Header + progress (Visible only after Step 0)
+# ---------------------------------------------------------------------------
+
+if st.session_state.step > 0:
+    st.markdown(f"<h1 class='main-title' style='font-size: 1.8rem; text-align: left;'>{APP_TITLE} <span style='color: var(--text-muted); font-size: 1.2rem; font-weight: 400;'>| {st.session_state.get('current_project', 'Sans titre')}</span></h1>", unsafe_allow_html=True)
+    st.divider()
 
 
 # ---------------------------------------------------------------------------
