@@ -33,7 +33,7 @@ from core.exporter import export_tco
 from config import (
     UPLOAD_DIR, ALLOWED_EXTENSIONS, MAX_FILE_SIZE_MB, MAX_COMPANIES,
     COMPANY_NAME_MAX_LEN, TVA_OPTIONS, TVA_DEFAULT, APP_TITLE, APP_ICON,
-    PROJECTS_DIR
+    APP_VERSION, PROJECTS_DIR
 )
 from logger import get_logger
 
@@ -49,6 +49,27 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded",
 )
+
+# ---------------------------------------------------------------------------
+# Session state init
+# ---------------------------------------------------------------------------
+
+defaults = {
+    "tco_df":        None,
+    "tco_meta":      None,
+    "merged_df":     None,
+    "all_alerts":    [],
+    "company_data":  {},
+    "step":          0,
+    "upload_counter":0,
+    "tva_rate":      TVA_DEFAULT,
+    "confirm_remove":None,  # UX-4 : stocke le nom de l'entreprise à supprimer
+    "dark_mode":     False,
+}
+for k, v in defaults.items():
+    if k not in st.session_state:
+        st.session_state[k] = v
+
 
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 os.makedirs(PROJECTS_DIR, exist_ok=True)
@@ -109,7 +130,7 @@ def rebuild_merged_tco(tva_rate=TVA_DEFAULT):
     
     for comp_name, comp_data in st.session_state.company_data.items():
         merged, merge_alerts = merge_company_into_tco(
-            merged, comp_data["dpgf_df"], comp_name
+            merged, comp_data["dpgf_df"], comp_name, tva_rate=tva_rate
         )
         all_alerts.extend(comp_data["parse_alerts"])
         all_alerts.extend(merge_alerts)
@@ -229,69 +250,76 @@ def delete_project(name):
 # Sidebar & Logo
 # ---------------------------------------------------------------------------
 
-with st.sidebar:
-    # Logo Odetec
-    if os.path.exists("odetec_logo.png"):
-        st.image("odetec_logo.png", width="stretch")
-    
-    st.markdown("---")
-    st.markdown("### 📋 Mes Projets")
-    
-    # Liste des projets existants (Direct Click)
-    projects = list_projects()
-    if projects:
-        for p in projects:
-            # Button style handled by CSS
-            if st.button(f"📄  {p}", key=f"load_{p}", use_container_width=True):
-                ok, msg = load_project(p)
-                if ok: st.rerun()
-                else: st.error(msg)
-    else:
-        st.caption("Aucun projet sauvegardé.")
-
-    st.markdown("---")
-    st.markdown("### 🏗️ Gestion")
-    
-    curr_name = st.session_state.get("current_project", "")
-    proj_name = st.text_input(
-        "Titre du projet", 
-        value=curr_name,
-        placeholder="Entrez le nom...",
-        key="proj_title_input",
-        label_visibility="collapsed"
-    )
-    
-    if st.button("💾 Sauvegarder", use_container_width=True, type="primary"):
-        if proj_name:
-            ok, msg = save_project(proj_name)
-            if ok: st.success(msg)
-            else: st.error(msg)
-            st.rerun()
+if st.session_state.step > 0:
+    with st.sidebar:
+        # Logo Odetec
+        if os.path.exists("odetec_logo.png"):
+            st.image("odetec_logo.png", width="stretch")
+        
+        st.markdown("---")
+        st.markdown("### 📋 Mes Projets")
+        
+        # Liste des projets existants (Direct Click)
+        projects = list_projects()
+        if projects:
+            for p in projects:
+                # Button style handled by CSS
+                if st.button(f"📄  {p}", key=f"load_{p}", use_container_width=True):
+                    ok, msg = load_project(p)
+                    if ok: st.rerun()
+                    else: st.error(msg)
         else:
-            st.warning("Nom requis.")
+            st.caption("Aucun projet sauvegardé.")
 
-    if st.button("🆕 Nouveau Projet", use_container_width=True):
-        for k in ["tco_df", "company_data", "tco_meta", "step", "merged_df", "all_alerts", "current_project"]:
-            if k in st.session_state: del st.session_state[k]
-        st.session_state.step = 0
-        st.rerun()
+        st.markdown("---")
+        st.markdown("### 🏗️ Gestion")
+        
+        curr_name = st.session_state.get("current_project", "")
+        proj_name = st.text_input(
+            "Titre du projet", 
+            value=curr_name,
+            placeholder="Entrez le nom...",
+            key="proj_title_input",
+            label_visibility="collapsed"
+        )
+        
+        if st.button("💾 Sauvegarder", use_container_width=True, type="primary"):
+            if proj_name:
+                ok, msg = save_project(proj_name)
+                if ok: st.success(msg)
+                else: st.error(msg)
+                st.rerun()
+            else:
+                st.warning("Nom requis.")
+
+        
+        if projects:
+            with st.expander("🗑️ Administration"):
+                to_del = st.selectbox("Supprimer un projet", [""] + projects, key="del_select")
+                if to_del and st.button(f"Confirmer la suppression"):
+                    if delete_project(to_del): st.rerun()
     
-    if projects:
-        with st.expander("🗑️ Administration"):
-            to_del = st.selectbox("Supprimer un projet", [""] + projects, key="del_select")
-            if to_del and st.button(f"Confirmer la suppression"):
-                if delete_project(to_del): st.rerun()
-    
-    st.markdown("---")
-    st.markdown("### ⚙️ Paramètres")
-    
-    if "dark_mode" not in st.session_state:
-        st.session_state.dark_mode = False
-    
-    dark = st.toggle("🌙 Mode sombre", value=st.session_state.dark_mode)
-    if dark != st.session_state.dark_mode:
-        st.session_state.dark_mode = dark
-        st.rerun()
+        st.markdown("---")
+        st.markdown("### ⚙️ Paramètres")
+        
+        dark = st.toggle("🌙 Mode sombre", value=st.session_state.dark_mode)
+        if dark != st.session_state.dark_mode:
+            st.session_state.dark_mode = dark
+            st.rerun()
+
+        st.markdown("---")
+        st.markdown("### 🛑 Système")
+        
+        if st.button("🚪 Quitter le projet", use_container_width=True, help="Revient à l'accueil"):
+            for k in ["tco_df", "company_data", "tco_meta", "step", "merged_df", "all_alerts", "current_project"]:
+                if k in st.session_state: del st.session_state[k]
+            st.session_state.step = 0
+            st.rerun()
+
+        if st.button("❌ Fermer l'application", use_container_width=True, help="Arrête le serveur"):
+            st.warning("Arrêt de l'application...")
+            import os, signal
+            os.kill(os.getpid(), signal.SIGTERM)
 
 is_dark = st.session_state.dark_mode
 
@@ -592,28 +620,41 @@ hr {{ border: none; border-top: 1px solid var(--border); margin: 1.2rem 0; }}
 
 /* ── Footer ───────────────────────────────────────────── */
 footer {{ visibility: hidden; }}
+
+/* ── Step 0 Specifics ─────────────────────────────────── */
+[data-testid="stSidebar"] {{
+    display: {"none" if st.session_state.step == 0 else "block"} !important;
+}}
+
+/* Integration des widgets dans les cartes de la page 0 (Ciblage des conteneurs natifs) */
+[data-testid="stVerticalBlockBorderWrapper"] {{
+    background: var(--card-bg);
+    border: 2px solid var(--border) !important;
+    border-left: 6px solid var(--accent) !important;
+    border-radius: 16px !important;
+    padding: 1rem !important;
+    box-shadow: 0 10px 30px var(--shadow-light);
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}}
+[data-testid="stVerticalBlockBorderWrapper"]:hover {{
+    border-color: var(--accent) !important;
+    box-shadow: 0 15px 40px var(--shadow);
+    transform: translateY(-4px);
+}}
+[data-testid="stVerticalBlockBorderWrapper"] h3 {{
+    margin-top: 0 !important;
+    margin-bottom: 0.8rem !important;
+    font-size: 1.5rem !important;
+    color: var(--accent-dark);
+}}
+[data-testid="stVerticalBlockBorderWrapper"] p {{
+    font-size: 0.95rem;
+    color: var(--text-muted);
+    margin-bottom: 1.5rem !important;
+}}
 </style>
 """, unsafe_allow_html=True)
 
-
-# ---------------------------------------------------------------------------
-# Session state init
-# ---------------------------------------------------------------------------
-
-defaults = {
-    "tco_df":        None,
-    "tco_meta":      None,
-    "merged_df":     None,
-    "all_alerts":    [],
-    "company_data":  {},
-    "step":          0,
-    "upload_counter":0,
-    "tva_rate":      TVA_DEFAULT,
-    "confirm_remove":None,  # UX-4 : stocke le nom de l'entreprise à supprimer
-}
-for k, v in defaults.items():
-    if k not in st.session_state:
-        st.session_state[k] = v
 
 
 # ---------------------------------------------------------------------------
@@ -636,48 +677,38 @@ if st.session_state.step == 0:
     col1, col2 = st.columns(2)
 
     with col1:
-        st.markdown("""
-        <div class='company-card' style='height: 100%; min-height: 250px; display: flex; flex-direction: column; justify-content: space-between;'>
-            <div>
-                <h3>🆕 Nouveau Projet</h3>
-                <p style='color: var(--text-muted);'>Commencez une nouvelle analyse en important un modèle de TCO vierge.</p>
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
-        
-        new_proj_name = st.text_input("Nom du futur projet", placeholder="Ex: Chantier Bordeaux - Lot 04", key="landing_new_proj_name", label_visibility="collapsed")
-        if st.button("🚀 Créer le projet", type="primary", use_container_width=True):
-            if new_proj_name:
-                st.session_state.current_project = new_proj_name
-                st.session_state.step = 1
-                st.rerun()
-            else:
-                st.warning("Veuillez saisir un nom de projet.")
+        with st.container(border=True):
+            st.markdown("### 🆕 Nouveau Projet")
+            st.markdown("<p>Commencez une nouvelle analyse en important un modèle de TCO vierge.</p>", unsafe_allow_html=True)
+            
+            new_proj_name = st.text_input("Nom du futur projet", placeholder="Ex: Chantier Bordeaux - Lot 04", key="landing_new_proj_name", label_visibility="collapsed")
+            st.markdown("<div style='height: 10px;'></div>", unsafe_allow_html=True)
+            if st.button("🚀 Créer le projet", type="primary", use_container_width=True):
+                if new_proj_name:
+                    st.session_state.current_project = new_proj_name
+                    st.session_state.step = 1
+                    st.rerun()
+                else:
+                    st.warning("Veuillez saisir un nom de projet.")
 
     with col2:
-        st.markdown("""
-        <div class='company-card' style='height: 100%; min-height: 250px; display: flex; flex-direction: column; justify-content: space-between;'>
-            <div>
-                <h3>📂 Ouvrir un Projet</h3>
-                <p style='color: var(--text-muted);'>Reprenez un travail en cours depuis vos sauvegardes locales.</p>
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
-        
-        projects = list_projects()
-        if projects:
-            selected_proj = st.selectbox("Choisir un projet", [""] + projects, key="landing_open_proj_select", label_visibility="collapsed")
-            if st.button("📂 Ouvrir", use_container_width=True) and selected_proj:
-                ok, msg = load_project(selected_proj)
-                if ok: 
-                    # If loaded, the step is usually >= 1. If it was 0, force it to 1
-                    if st.session_state.step == 0:
-                        st.session_state.step = 1
-                    st.rerun()
-                else: 
-                    st.error(msg)
-        else:
-            st.info("Aucun projet sauvegardé pour le moment.")
+        with st.container(border=True):
+            st.markdown("### 📂 Ouvrir un Projet")
+            st.markdown("<p>Reprenez un travail en cours depuis vos sauvegardes locales.</p>", unsafe_allow_html=True)
+            
+            projects = list_projects()
+            if projects:
+                for p in projects:
+                    if st.button(f"📄  {p}", key=f"landing_load_{p}", use_container_width=True):
+                        ok, msg = load_project(p)
+                        if ok:
+                            if st.session_state.step == 0:
+                                st.session_state.step = 1
+                            st.rerun()
+                        else:
+                            st.error(msg)
+            else:
+                st.caption("Aucun projet sauvegardé pour le moment.")
 
 
 # ---------------------------------------------------------------------------
@@ -927,6 +958,7 @@ if st.session_state.step >= 3:
                     st.session_state.tco_meta,
                     output_path=None,
                     alerts=st.session_state.all_alerts,
+                    tva_rate=st.session_state.tva_rate
                 )
         
         def on_export_click():
@@ -953,4 +985,4 @@ if st.session_state.step >= 3:
         st.error(f"❌ Erreur de génération : {e}")
 
 st.divider()
-st.caption(f"{APP_TITLE} v{2.1} — TCO Automator")
+st.caption(f"{APP_TITLE} v{APP_VERSION} — TCO Automator")

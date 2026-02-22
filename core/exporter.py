@@ -10,6 +10,7 @@ Génère un fichier .xlsx avec :
 """
 
 import io
+import re
 import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
@@ -105,7 +106,7 @@ def _get_row_style(row_type):
 # Main exporter
 # ---------------------------------------------------------------------------
 
-def export_tco(merged_df, meta, output_path=None, alerts=None):
+def export_tco(merged_df, meta, output_path=None, alerts=None, tva_rate=0.20):
     """
     Exporte le TCO fusionné en fichier Excel formaté.
     """
@@ -194,7 +195,8 @@ def export_tco(merged_df, meta, output_path=None, alerts=None):
             continue
 
         code  = str(row.get("Code", "")).strip()
-        desig = str(row.get("Désignation", "")).strip().lower()
+        desig = str(row.get("Désignation", "")).strip()
+        desig_lower = desig.lower()
 
         # Maj de la section courante
         if row_type == "section_header":
@@ -235,7 +237,7 @@ def export_tco(merged_df, meta, output_path=None, alerts=None):
             else:
                 ws.cell(row=excel_row, column=6, value=row.get("Px_Tot_HT")) # Fallback
                 
-        elif "montant ht" in desig:
+        elif re.search(r"montant\s+ht", desig_lower):
             # Grand Total HT
             if recap_summary_rows:
                 formula = "=SUM(" + ",".join([f"F{r}" for r in recap_summary_rows]) + ")"
@@ -244,14 +246,14 @@ def export_tco(merged_df, meta, output_path=None, alerts=None):
                 ws.cell(row=excel_row, column=6, value=row.get("Px_Tot_HT"))
             ht_row_idx = excel_row
             
-        elif "tva" in desig and "ht" not in desig:
+        elif re.search(r"tva", desig_lower) and not re.search(r"ht", desig_lower):
             if 'ht_row_idx' in locals() and ht_row_idx:
-                ws.cell(row=excel_row, column=6, value=f"=F{ht_row_idx}*0.2")
+                ws.cell(row=excel_row, column=6, value=f"=F{ht_row_idx}*{tva_rate}")
                 tva_row_idx = excel_row
             else:
                 ws.cell(row=excel_row, column=6, value=row.get("Px_Tot_HT"))
                 
-        elif "montant ttc" in desig:
+        elif re.search(r"montant\s+ttc", desig_lower):
             if 'ht_row_idx' in locals() and 'tva_row_idx' in locals() and ht_row_idx and tva_row_idx:
                 ws.cell(row=excel_row, column=6, value=f"=F{ht_row_idx}+F{tva_row_idx}")
             else:
@@ -284,18 +286,18 @@ def export_tco(merged_df, meta, output_path=None, alerts=None):
                     ws.cell(row=excel_row, column=col_offset + 2, value=f"={tot_col}{target_row}")
                 else:
                     ws.cell(row=excel_row, column=col_offset + 2, value=row.get(f"{comp}_Px_Tot_HT"))
-            elif "montant ht" in desig:
+            elif re.search(r"montant\s+ht", desig_lower):
                 if recap_summary_rows:
                     formula = f"=SUM(" + ",".join([f"{tot_col}{r}" for r in recap_summary_rows]) + ")"
                     ws.cell(row=excel_row, column=col_offset + 2, value=formula)
                 else:
                     ws.cell(row=excel_row, column=col_offset + 2, value=row.get(f"{comp}_Px_Tot_HT"))
-            elif "tva" in desig and "ht" not in desig:
+            elif re.search(r"tva", desig_lower) and not re.search(r"ht", desig_lower):
                 if 'ht_row_idx' in locals() and ht_row_idx:
-                    ws.cell(row=excel_row, column=col_offset + 2, value=f"={tot_col}{ht_row_idx}*0.2")
+                    ws.cell(row=excel_row, column=col_offset + 2, value=f"={tot_col}{ht_row_idx}*{tva_rate}")
                 else:
                     ws.cell(row=excel_row, column=col_offset + 2, value=row.get(f"{comp}_Px_Tot_HT"))
-            elif "montant ttc" in desig:
+            elif re.search(r"montant\s+ttc", desig_lower):
                 if 'ht_row_idx' in locals() and 'tva_row_idx' in locals() and ht_row_idx and tva_row_idx:
                     ws.cell(row=excel_row, column=col_offset + 2, value=f"={tot_col}{ht_row_idx}+{tot_col}{tva_row_idx}")
                 else:
@@ -327,7 +329,6 @@ def export_tco(merged_df, meta, output_path=None, alerts=None):
 
         excel_row += 1
 
-    ws.freeze_panes = "C3"
     _auto_width(ws)
     ws.column_dimensions["B"].width = 55 # Force Désignation width
 

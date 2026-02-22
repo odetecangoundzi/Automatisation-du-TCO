@@ -1,0 +1,27 @@
+=== TCO_FINAL - bottom rows ===
+Row 128: ['A=01.10.3.1', 'B=  Carottage', 'C=7', 'D=U', 'E=250', 'F=1750', 'G=8843FD3007FD35419034B766837AC6DF', 'H=DC551CBE83FFFE4CA2DAE3B5BB7AA770', 'I=1', 'J=1', 'K=7', 'L=280', 'M=1960', 'N=', 'O=1', 'P=7', 'Q=136.26', 'R=953.82', 'S=', 'T=1', 'U=7', 'V=218.66', 'W=1530.62', 'X=']
+Row 129: ['A=Total BATIMENT J :', 'F=6340', 'M=5782', 'R=15986.92', 'W=17080.71']
+Row 130: []
+Row 131: ['A=Total pour le lot']
+Row 132: []
+Row 133: []
+Row 134: ["K=Pas d'erreur de calcul : 99 500.00 €", 'P=Ecarts arrondis : 0.09 €\n\nMontant DPGF : 226 109.95 €\nMontant vérifié : 226 109.86 €', "U=Pas d'erreur de calcul : 200 521.70 €"]
+Row 135: []
+Row 136: []
+Row 137: ['A=Total HT (20%)', 'F=94070', 'M=99499.99999999999', 'R=226109.86000000004', 'W=200521.69999999998']
+Row 138: []
+
+=== MAB SUD-OUEST cols (W=23) ===
+Row 128: Desig=[  Carottage] W=1530.62
+Row 129: Desig=[None] W=17080.71
+Row 130: Desig=[None] W=None
+Row 131: Desig=[None] W=None
+Row 132: Desig=[None] W=None
+Row 133: Desig=[None] W=None
+Row 134: Desig=[None] W=None
+Row 135: Desig=[None] W=None
+Row 136: Desig=[None] W=None
+Row 137: Desig=[None] W=200521.69999999998
+Row 138: Desig=[None] W=None
+
+=== Looking for Montant/Total/TVA rows ===

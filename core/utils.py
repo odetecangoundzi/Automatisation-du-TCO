@@ -60,6 +60,11 @@ def classify_row(code_str, desig_str, entete_str):
         return "recap_summary"
     if "LignesTot" in ent:
         return "total_line"
+    
+    # Fallback si l'entête est manquante (cas fréquent sur lignes de total)
+    d_low = desig_str.lower()
+    if "montant ht" in d_low or ("tva" in d_low and "ht" not in d_low) or "montant ttc" in d_low:
+        return "total_line"
     if "Bord" in ent and "Recap" in ent:
         return "recap"
     if ent.startswith("Bd_") and "Bord" in ent:

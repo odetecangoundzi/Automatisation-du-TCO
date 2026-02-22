@@ -66,7 +66,7 @@ def _get_children_total(df, parent_code, total_col, children_index):
 # Main merger
 # ---------------------------------------------------------------------------
 
-def merge_company_into_tco(tco_df, dpgf_df, company_name):
+def merge_company_into_tco(tco_df, dpgf_df, company_name, tva_rate=TVA_DEFAULT):
     """
     Fusionne un DPGF normalisé dans le TCO.
 
@@ -74,12 +74,13 @@ def merge_company_into_tco(tco_df, dpgf_df, company_name):
         tco_df       : DataFrame du TCO modèle (de parse_tco)
         dpgf_df      : DataFrame normalisé du DPGF (de parse_dpgf)
         company_name : nom de l'entreprise
+        tva_rate     : taux de TVA (paramétrable)
 
     Returns:
         merged_df : DataFrame avec colonnes entreprise ajoutées
         alerts    : liste d'alertes (codes non trouvés)
     """
-    log.info("Fusion DPGF pour l'entreprise : %s", company_name)
+    log.info("Fusion DPGF pour l'entreprise : %s (TVA=%.2f)", company_name, tva_rate)
     merged_df = tco_df.copy()
     alerts    = []
 
@@ -132,7 +133,9 @@ def merge_company_into_tco(tco_df, dpgf_df, company_name):
                         "Code": code,
                         "Désignation": dpgf_row["Désignation"],
                         "Qu.": None, "U": dpgf_row.get("U", ""), "Px_U_HT": None, "Px_Tot_HT": None,
+                        "Entete": dpgf_row.get("Entete", "Ouv_Art"),
                         "row_type": "article",
+                        "original_row": idx, # On utilise l'index d'insertion comme référence
                         "parent_code": parent_code
                     }
                     # Initialisation des colonnes entreprises connues
@@ -180,7 +183,7 @@ def merge_company_into_tco(tco_df, dpgf_df, company_name):
         matched_count, len(alerts)
     )
 
-    _compute_section_totals(merged_df, col_tot)
+    _compute_section_totals(merged_df, col_tot, tva_rate=tva_rate)
     return merged_df, alerts
 
 
