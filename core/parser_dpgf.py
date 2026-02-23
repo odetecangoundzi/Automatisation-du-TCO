@@ -6,8 +6,9 @@ extrait les annotations en colonne Commentaire, et détecte les erreurs.
 Utilise la colonne Entete (col M) pour classifier chaque ligne.
 """
 
+from __future__ import annotations
+import os
 import re
-import openpyxl
 import pandas as pd
 
 from core.utils import find_header_row, classify_row
@@ -37,12 +38,12 @@ KEYWORDS = {
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _clean_numeric(value):
+def _clean_numeric(value: int | float | str | None) -> tuple[float, str]:
     """
     Nettoie une valeur potentiellement numérique.
     Retourne (nombre_float, texte_annotation).
     """
-    if value is None:
+    if pd.isna(value):
         return 0.0, ""
     if isinstance(value, (int, float)):
         return float(value), ""
@@ -59,15 +60,20 @@ def _clean_numeric(value):
     cleaned = text.replace(" ", "").replace("\u00a0", "").replace(",", ".")
     match   = re.search(r"-?\d+(?:\.\d+)?", cleaned)
     if match:
-        number    = float(match.group())
-        remaining = re.sub(r"-?\d+(?:\.\d+)?", "", cleaned).strip()
-        remaining = remaining.strip("()[]{}/ ")
-        return number, remaining
+        try:
+            number    = float(match.group())
+            remaining = re.sub(r"-?\d+(?:\.\d+)?", "", cleaned).strip()
+            remaining = remaining.strip("()[]{}/ ")
+            return number, remaining
+        except ValueError:
+            pass
 
     return 0.0, text
 
 
-def _check_total_coherence(qu_val, pu_val, total_val, row_idx, code):
+def _check_total_coherence(
+    qu_val: float, pu_val: float, total_val: float, row_idx: int, code: str
+) -> dict | None:
     """Vérifie que Qu × PU ≈ Total (tolérance absolue ET relative)."""
     if qu_val and pu_val and total_val:
         try:
@@ -101,9 +107,9 @@ def _check_total_coherence(qu_val, pu_val, total_val, row_idx, code):
 # Main parser
 # ---------------------------------------------------------------------------
 
-def parse_dpgf(filepath):
+def parse_dpgf(filepath: str) -> tuple[pd.DataFrame, list[dict]]:
     """
-    Lit et normalise un fichier DPGF entreprise (.xlsx).
+    Lit et normalise un fichier DPGF entreprise (XLSX, XLS, XLSB).
 
     Returns:
         dpgf_df (DataFrame) : DataFrame normalisé
@@ -111,34 +117,53 @@ def parse_dpgf(filepath):
     """
     log.info("Lecture DPGF : %s", filepath)
 
-    wb = openpyxl.load_workbook(filepath, data_only=True, read_only=True)
-    ws = wb.active
+    ext = os.path.splitext(filepath)[1].lower()
+    engine = None
+    if ext == ".xls": engine = "xlrd"
+    elif ext == ".xlsb": engine = "pyxlsb"
+    elif ext in [".xlsx", ".xlsm"]: engine = "openpyxl"
 
-    header_row = find_header_row(ws)
+    try:
+        # Lecture sans header pour trouver la table
+        df_raw = pd.read_excel(filepath, engine=engine, header=None)
+        header_row_idx = find_header_row(df_raw)
+        
+        # Re-lecture avec le bon header
+        df_data = pd.read_excel(filepath, engine=engine, skiprows=header_row_idx)
+    except Exception as e:
+        log.error("Erreur de structure DPGF: %s", e)
+        return pd.DataFrame(), [{"type": "error", "color": "red", "row": 0, "code": "", "message": str(e)}]
+
     alerts     = []
     rows       = []
     current_section_code = ""
 
-    for row_idx, xl_row in enumerate(
-        ws.iter_rows(min_row=header_row + 1, values_only=True),
-        start=header_row + 1,
-    ):
+    # Les colonnes sont identifiées par position
+    # 0: Code, 1: Designation, 2: Quantité, 3: Unité, 4: Px U, 5: Px Tot, 12: Entete (col M)
+    for idx_in_df, xl_row in df_data.iterrows():
+        row_idx = idx_in_df + header_row_idx + 2  # conversion en 1-indexed Excel row
+        
         if len(xl_row) < 6:
             continue
 
-        code_raw   = xl_row[0]
-        desig_raw  = xl_row[1]
-        cc_raw     = xl_row[2]
-        u          = xl_row[3]
-        px_u_raw   = xl_row[4]
-        px_tot_raw = xl_row[5]
-        entete     = xl_row[12] if len(xl_row) > 12 else None
+        code_raw   = xl_row.iloc[0]
+        desig_raw  = xl_row.iloc[1]
+        cc_raw     = xl_row.iloc[2]
+        u          = xl_row.iloc[3]
+        px_u_raw   = xl_row.iloc[4]
+        px_tot_raw = xl_row.iloc[5]
+        entete     = xl_row.iloc[12] if len(xl_row) > 12 else None
 
-        code_str  = str(code_raw).strip()  if code_raw  else ""
-        desig_str = str(desig_raw).strip() if desig_raw else ""
-        ent_str   = str(entete).strip()    if entete    else ""
+        code_str  = str(code_raw).strip()  if pd.notna(code_raw)  else ""
+        desig_str = str(desig_raw).strip() if pd.notna(desig_raw) else ""
+        ent_str   = str(entete).strip()    if pd.notna(entete)    else ""
 
-        row_type = classify_row(code_str, desig_str, ent_str)
+        has_price = bool(
+            (pd.notna(cc_raw) and (isinstance(cc_raw, (int, float)) or str(cc_raw).strip())) and 
+            (pd.notna(px_u_raw) and (isinstance(px_u_raw, (int, float)) or str(px_u_raw).strip()))
+        )
+
+        row_type = classify_row(code_str, desig_str, ent_str, has_price=has_price)
 
         if row_type == "section_header":
             current_section_code = code_str
@@ -186,7 +211,7 @@ def parse_dpgf(filepath):
             "Code":         code_str,
             "Désignation":  desig_str,
             "Qu.":          qu_val,
-            "U":            str(u).strip() if u else "",
+            "U":            str(u).strip() if pd.notna(u) else "",
             "Px_U_HT":      pu_val,
             "Px_Tot_HT":    tot_val,
             "Commentaire":  commentaire,
@@ -196,10 +221,10 @@ def parse_dpgf(filepath):
             "parent_code":  parent_code,
         })
 
-    wb.close()
     dpgf_df = pd.DataFrame(rows)
     log.info(
         "DPGF parsé : %d lignes, %d alertes",
         len(dpgf_df), len(alerts),
     )
     return dpgf_df, alerts
+

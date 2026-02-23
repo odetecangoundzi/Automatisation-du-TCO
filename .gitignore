@@ -1,26 +1,30 @@
-# Python
-__pycache__/
-*.py[cod]
-*.egg-info/
+# Virtual environment
 venv/
-.env
+.venv/
+env/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
 
-# App data
-uploads/
-outputs/
+# Streamlit
+.streamlit/
+
+# Temporary files
+*.xlsx
+*.txt
+*.json
+*.log
+!metadata.json
+!project_info.json
+
+# Local project files
 projects/
-logs/
+backup/
 
-# Test files
-test_*.py
-test_*.txt
-excel_analysis*.txt
-conception_text.txt
-
-# IDE
+# IDE files
 .vscode/
 .idea/
 
-# OS
-Thumbs.db
-.DS_Store
+# Secret files
+.env

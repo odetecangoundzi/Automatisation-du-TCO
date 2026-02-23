@@ -6,34 +6,45 @@ Centralise :
   - _classify_row     : classifie chaque ligne selon la colonne Entete (col M)
 """
 
+from __future__ import annotations
+import pandas as pd
 
-def find_header_row(ws, max_search=20):
+
+def find_header_row(df: pd.DataFrame, max_search: int = 20) -> int:
     """
-    Parcourt les lignes du worksheet pour trouver celle contenant
-    'Code' en col A et 'Désignation' en col B.
+    Parcourt les lignes d'un DataFrame pour trouver celle contenant
+    'Code' en col 0 et 'Désignation' en col 1.
 
     Returns:
-        int : numéro de ligne (1-indexed)
+        int : index de la ligne (0-indexed)
     Raises:
         ValueError : si l'en-tête n'est pas trouvée dans les max_search premières lignes
     """
-    for row_idx in range(1, min(ws.max_row + 1, max_search + 1)):
-        a_val = ws.cell(row=row_idx, column=1).value
-        b_val = ws.cell(row=row_idx, column=2).value
+    for row_idx in range(min(len(df), max_search)):
+        row = df.iloc[row_idx]
+        if len(row) < 2:
+            continue
+            
+        a_val = row.iloc[0]
+        b_val = row.iloc[1]
+        
         if (
-            a_val and str(a_val).strip().lower() == "code"
-            and b_val and "signation" in str(b_val).strip().lower()
+            pd.notna(a_val) and str(a_val).strip().lower() == "code"
+            and pd.notna(b_val) and "signation" in str(b_val).strip().lower()
         ):
             return row_idx
+            
     raise ValueError(
         "Impossible de trouver la ligne d'en-tête (Code | Désignation) "
         f"dans les {max_search} premières lignes."
     )
 
 
-def classify_row(code_str, desig_str, entete_str):
+def classify_row(code_str: str, desig_str: str, entete_str: str, has_price: bool = False) -> str:
     """
     Classifie une ligne selon les métadonnées de la colonne Entete (col M).
+    Si l'entête est absente ou non standard, utilise le paramètre `has_price` en fallback
+    pour identifier les articles.
 
     Types retournés :
       - section_header : section principale (Bd_xxx_Bord)
@@ -50,6 +61,7 @@ def classify_row(code_str, desig_str, entete_str):
         code_str   (str) : valeur de la colonne Code (déjà strip())
         desig_str  (str) : valeur de la colonne Désignation
         entete_str (str) : valeur de la colonne Entete (col M)
+        has_price (bool) : True si la ligne a une quantité et un prix unitaire
 
     Returns:
         str : type de ligne
@@ -77,4 +89,9 @@ def classify_row(code_str, desig_str, entete_str):
         return "total_text"
     if not code_str and not desig_str:
         return "empty"
+    
+    # Fallback pour les DPGF sans colonne Entete remplie
+    if has_price and code_str:
+        return "article"
+        
     return "other"

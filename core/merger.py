@@ -7,7 +7,10 @@ Les lignes "recap" (Code vide, Entete Bord_xxx_Recap) reçoivent le total
 de leur section parente.
 """
 
+from __future__ import annotations
+
 import pandas as pd
+
 from config import TVA_DEFAULT
 from logger import get_logger
 
@@ -18,12 +21,12 @@ log = get_logger(__name__)
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _normalize_code(code):
+def _normalize_code(code: object) -> str:
     """Normalise un code pour la comparaison."""
     return str(code).strip() if code else ""
 
 
-def _build_section_index(df):
+def _build_section_index(df: pd.DataFrame) -> dict[str, int]:
     """
     PERF-1 : Pré-indexe les section_headers par code pour lookup O(1).
     Retourne un dict {code: dataframe_index}.
@@ -35,7 +38,12 @@ def _build_section_index(df):
     }
 
 
-def _get_children_total(df, parent_code, total_col, children_index):
+def _get_children_total(
+    df: pd.DataFrame,
+    parent_code: str,
+    total_col: str,
+    children_index: dict[str, list[int]],
+) -> float:
     """
     Calcule la somme des valeurs d'une colonne pour tous les enfants
     (articles ET sub_sections) d'une section.
@@ -66,7 +74,12 @@ def _get_children_total(df, parent_code, total_col, children_index):
 # Main merger
 # ---------------------------------------------------------------------------
 
-def merge_company_into_tco(tco_df, dpgf_df, company_name, tva_rate=TVA_DEFAULT):
+def merge_company_into_tco(
+    tco_df: pd.DataFrame,
+    dpgf_df: pd.DataFrame,
+    company_name: str,
+    tva_rate: float = TVA_DEFAULT,
+) -> tuple[pd.DataFrame, list[dict]]:
     """
     Fusionne un DPGF normalisé dans le TCO.
 
@@ -94,8 +107,12 @@ def merge_company_into_tco(tco_df, dpgf_df, company_name, tva_rate=TVA_DEFAULT):
     merged_df[col_tot] = None
     merged_df[col_com] = None
 
+    if dpgf_df.empty:
+        log.warning("Le DPGF de %s est vide. Aucune fusion effectuée.", company_name)
+        return merged_df, [{"type": "warning", "color": "orange", "row": 0, "code": "", "message": "Fichier DPGF vide ou non reconnu."}]
+
     # PERF-1 : index TCO codes → O(1) lookup
-    tco_code_index = {}
+    tco_code_index: dict[str, int] = {}
     for idx, row in merged_df.iterrows():
         code = _normalize_code(row["Code"])
         if code and row["row_type"] not in ("empty", "recap", "recap_summary"):
@@ -191,7 +208,11 @@ def merge_company_into_tco(tco_df, dpgf_df, company_name, tva_rate=TVA_DEFAULT):
 # Calcul des sous-totaux
 # ---------------------------------------------------------------------------
 
-def _compute_section_totals(df, total_col, tva_rate=TVA_DEFAULT):
+def _compute_section_totals(
+    df: pd.DataFrame,
+    total_col: str,
+    tva_rate: float = TVA_DEFAULT,
+) -> None:
     """
     Recalcule les totaux pour :
       1. section_header (01.X) : somme directe des articles + sub_sections
@@ -203,7 +224,7 @@ def _compute_section_totals(df, total_col, tva_rate=TVA_DEFAULT):
         total_col : colonne à calculer (ex: "MAB SUD-OUEST_Px_Tot_HT")
         tva_rate  : taux de TVA (paramétrable)
     """
-    children_index: dict[str, list] = {}
+    children_index: dict[str, list[int]] = {}
     for idx, row in df.iterrows():
         code = _normalize_code(row["Code"])
         if code:
@@ -217,8 +238,7 @@ def _compute_section_totals(df, total_col, tva_rate=TVA_DEFAULT):
         if not code or row["row_type"] != "section_header":
             continue
         total = _get_children_total(df, code, total_col, children_index)
-        if total > 0:
-            df.at[idx, total_col] = total
+        df.at[idx, total_col] = total
 
     # Passe 2 : propager vers les lignes recap
     for idx, row in df.iterrows():
@@ -266,21 +286,27 @@ def _compute_section_totals(df, total_col, tva_rate=TVA_DEFAULT):
                 if key in desig:
                     df.at[idx, total_col] = val
                     break
+    else:
+        # Si montant_ht est 0 ou non calculable, on met 0 par défaut pour les lignes de total
+        for idx, row in df.iterrows():
+            if row["row_type"] == "total_line":
+                df.at[idx, total_col] = 0.0
 
     # Colonne de base Px_Tot_HT (si on vient de calculer une colonne entreprise)
     if total_col != "Px_Tot_HT":
         _compute_ht_tva_ttc_base(df, tva_rate)
 
 
-def _compute_ht_tva_ttc_base(df, tva_rate=TVA_DEFAULT):
+def _compute_ht_tva_ttc_base(df: pd.DataFrame, tva_rate: float = TVA_DEFAULT) -> None:
     """Calcule Montant HT, TVA, TTC pour la colonne de base Px_Tot_HT."""
-    montant_ht = sum(
-        float(row["Px_Tot_HT"])
-        for _, row in df.iterrows()
-        if row["row_type"] == "section_header"
-        and row.get("Px_Tot_HT") is not None
-        and isinstance(row["Px_Tot_HT"], (int, float))
+    # MED-5 : Vectorisé avec pandas au lieu de iterrows()
+    mask = (
+        (df["row_type"] == "section_header")
+        & df["Px_Tot_HT"].notna()
+        & df["Px_Tot_HT"].apply(lambda x: isinstance(x, (int, float)))
     )
+    montant_ht = pd.to_numeric(df.loc[mask, "Px_Tot_HT"], errors="coerce").sum()
+
     if montant_ht <= 0:
         return
 

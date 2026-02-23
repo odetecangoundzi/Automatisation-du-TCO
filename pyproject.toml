@@ -1,0 +1,49 @@
+[project]
+name = "tco-automator"
+version = "2.2.0"
+description = "Consolidation automatique des DPGF et remplissage du TCO"
+requires-python = ">=3.10"
+dependencies = [
+    "streamlit>=1.41.1",
+    "pandas>=2.2.3",
+    "openpyxl>=3.1.5",
+    "python-dotenv>=1.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "ruff>=0.4.0",
+    "pytest>=8.0",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle errors
+    "W",    # pycodestyle warnings
+    "F",    # pyflakes
+    "I",    # isort
+    "B",    # flake8-bugbear
+    "S",    # flake8-bandit (security)
+    "UP",   # pyupgrade
+]
+ignore = [
+    "E501",  # line too long (handled by formatter)
+    "S301",  # pickle (used only for legacy migration)
+    "S603",  # subprocess
+    "S607",  # starting with partial path
+]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]

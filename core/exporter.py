@@ -9,13 +9,20 @@ Génère un fichier .xlsx avec :
 - Support export via BytesIO (pas de sauvegarde disque obligatoire)
 """
 
+from __future__ import annotations
+
 import io
 import re
+from typing import TYPE_CHECKING
+
 import openpyxl
-from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
 from logger import get_logger
+
+if TYPE_CHECKING:
+    import pandas as pd
 
 log = get_logger(__name__)
 
@@ -61,7 +68,7 @@ THIN_BORDER = Border(
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _detect_companies(df):
+def _detect_companies(df: pd.DataFrame) -> list[str]:
     """Détecte les noms d'entreprises à partir des colonnes _Qu."""
     companies, seen = [], set()
     for col in df.columns:
@@ -73,7 +80,7 @@ def _detect_companies(df):
     return companies
 
 
-def _auto_width(ws, min_width=8, max_width=40):
+def _auto_width(ws, min_width: int = 8, max_width: int = 40) -> None:
     """Ajuste la largeur des colonnes automatiquement."""
     for col_cells in ws.columns:
         col_letter = get_column_letter(col_cells[0].column)
@@ -87,12 +94,12 @@ def _auto_width(ws, min_width=8, max_width=40):
         ws.column_dimensions[col_letter].width = max_len
 
 
-def _get_alert_fill(color):
+def _get_alert_fill(color: str) -> PatternFill | None:
     return {"red": FILL_ERROR, "orange": FILL_WARNING,
             "yellow": FILL_NOTE, "blue": FILL_INFO}.get(color)
 
 
-def _get_row_style(row_type):
+def _get_row_style(row_type: str) -> tuple[Font, PatternFill | None]:
     return {
         "section_header": (FONT_SECTION, FILL_SECTION),
         "recap":          (FONT_RECAP,   FILL_RECAP),
@@ -106,7 +113,13 @@ def _get_row_style(row_type):
 # Main exporter
 # ---------------------------------------------------------------------------
 
-def export_tco(merged_df, meta, output_path=None, alerts=None, tva_rate=0.20):
+def export_tco(
+    merged_df: pd.DataFrame,
+    meta: dict,
+    output_path: str | None = None,
+    alerts: list[dict] | None = None,
+    tva_rate: float = 0.20,
+) -> str | io.BytesIO:
     """
     Exporte le TCO fusionné en fichier Excel formaté.
     """
@@ -179,11 +192,15 @@ def export_tco(merged_df, meta, output_path=None, alerts=None, tva_rate=0.20):
     excel_row = 3
     
     # Tracking pour les formules dynamiques
-    section_articles  = {} # { '01.1': [row_idx, ...], ... }
-    section_total_row = {} # { '01.1': row_idx, ... }
-    recap_summary_rows = [] # [row_idx, ...]
+    section_articles: dict[str, list[int]]  = {}  # { '01.1': [row_idx, ...], ... }
+    section_total_row: dict[str, int] = {}  # { '01.1': row_idx, ... }
+    recap_summary_rows: list[int] = []  # [row_idx, ...]
     
-    current_section_code = None
+    current_section_code: str | None = None
+    
+    # QW-3 : Variables initialisées ici (pas de 'in locals()' fragile)
+    ht_row_idx: int | None = None
+    tva_row_idx: int | None = None
     
     # On fait un premier passage pour identifier les lignes et types si nécessaire ?
     # Non, on peut faire en un passage car les articles précèdent leurs totaux,
@@ -245,16 +262,14 @@ def export_tco(merged_df, meta, output_path=None, alerts=None, tva_rate=0.20):
             else:
                 ws.cell(row=excel_row, column=6, value=row.get("Px_Tot_HT"))
             ht_row_idx = excel_row
-            
         elif re.search(r"tva", desig_lower) and not re.search(r"ht", desig_lower):
-            if 'ht_row_idx' in locals() and ht_row_idx:
+            if ht_row_idx is not None:
                 ws.cell(row=excel_row, column=6, value=f"=F{ht_row_idx}*{tva_rate}")
                 tva_row_idx = excel_row
             else:
                 ws.cell(row=excel_row, column=6, value=row.get("Px_Tot_HT"))
-                
         elif re.search(r"montant\s+ttc", desig_lower):
-            if 'ht_row_idx' in locals() and 'tva_row_idx' in locals() and ht_row_idx and tva_row_idx:
+            if ht_row_idx is not None and tva_row_idx is not None:
                 ws.cell(row=excel_row, column=6, value=f"=F{ht_row_idx}+F{tva_row_idx}")
             else:
                 ws.cell(row=excel_row, column=6, value=row.get("Px_Tot_HT"))
@@ -293,12 +308,12 @@ def export_tco(merged_df, meta, output_path=None, alerts=None, tva_rate=0.20):
                 else:
                     ws.cell(row=excel_row, column=col_offset + 2, value=row.get(f"{comp}_Px_Tot_HT"))
             elif re.search(r"tva", desig_lower) and not re.search(r"ht", desig_lower):
-                if 'ht_row_idx' in locals() and ht_row_idx:
+                if ht_row_idx is not None:
                     ws.cell(row=excel_row, column=col_offset + 2, value=f"={tot_col}{ht_row_idx}*{tva_rate}")
                 else:
                     ws.cell(row=excel_row, column=col_offset + 2, value=row.get(f"{comp}_Px_Tot_HT"))
             elif re.search(r"montant\s+ttc", desig_lower):
-                if 'ht_row_idx' in locals() and 'tva_row_idx' in locals() and ht_row_idx and tva_row_idx:
+                if ht_row_idx is not None and tva_row_idx is not None:
                     ws.cell(row=excel_row, column=col_offset + 2, value=f"={tot_col}{ht_row_idx}+{tot_col}{tva_row_idx}")
                 else:
                     ws.cell(row=excel_row, column=col_offset + 2, value=row.get(f"{comp}_Px_Tot_HT"))
@@ -330,7 +345,10 @@ def export_tco(merged_df, meta, output_path=None, alerts=None, tva_rate=0.20):
         excel_row += 1
 
     _auto_width(ws)
-    ws.column_dimensions["B"].width = 55 # Force Désignation width
+    ws.column_dimensions["B"].width = 55  # Force Désignation width
+
+    # QW-4 : Figer les lignes d'en-tête pour la navigation
+    ws.freeze_panes = "A3"
 
     log.info("Workbook prêt. Output_path=%s", output_path)
 

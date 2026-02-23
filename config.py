@@ -3,9 +3,14 @@ config.py — Configuration centralisée du TCO Automator.
 
 ARCH-3 : Toutes les constantes métier et techniques sont ici.
 Modifier ce fichier pour adapter l'application à votre contexte.
+Les valeurs peuvent être surchargées via un fichier .env (voir .env.example).
 """
 
 import os
+
+from dotenv import load_dotenv
+
+load_dotenv()  # Charge les variables depuis .env si le fichier existe
 
 # ---------------------------------------------------------------------------
 # Répertoires
@@ -21,7 +26,7 @@ PROJECTS_DIR = os.path.join(BASE_DIR, "projects")
 # Fichiers
 # ---------------------------------------------------------------------------
 
-ALLOWED_EXTENSIONS = {".xlsx"}
+ALLOWED_EXTENSIONS = {".xlsx", ".xlsm", ".xls", ".xlsb"}
 MAX_FILE_SIZE_MB   = 20          # Taille max par fichier uploadé
 
 # ---------------------------------------------------------------------------
