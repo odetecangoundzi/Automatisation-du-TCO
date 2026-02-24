@@ -36,6 +36,7 @@ FONT_HEADER_COMPANY = Font(bold=True, size=12, color="FFFFFF")
 FONT_SECTION        = Font(bold=True, size=10, color="1F4E79")
 FONT_RECAP          = Font(bold=True, size=10, color="2F5496")
 FONT_TOTAL          = Font(bold=True, size=10)
+FONT_GRAND_TOTAL    = Font(bold=True, size=11, color="FFFFFF")  # Totaux généraux
 FONT_DATA           = Font(size=10)
 
 FILL_HEADER = PatternFill(start_color="2F5496", end_color="2F5496", fill_type="solid")
@@ -48,10 +49,19 @@ FILL_COMPANY_COLORS = [
 ]
 
 FILL_SECTION       = PatternFill(start_color="DCE6F1", end_color="DCE6F1", fill_type="solid")
-FILL_RECAP         = PatternFill(start_color="B4C6E7", end_color="B4C6E7", fill_type="solid")
-FILL_RECAP_SUMMARY = PatternFill(start_color="D6DCE4", end_color="D6DCE4", fill_type="solid")
-FILL_TOTAL_LINE    = PatternFill(start_color="E2EFDA", end_color="E2EFDA", fill_type="solid")
+FILL_RECAP         = PatternFill(start_color="E8E8E8", end_color="E8E8E8", fill_type="solid")  # gris clair
+FILL_RECAP_SUMMARY = PatternFill(start_color="BDBDBD", end_color="BDBDBD", fill_type="solid")  # gris moyen
+FILL_TOTAL_LINE    = PatternFill(start_color="E2EFDA", end_color="E2EFDA", fill_type="solid")  # fallback
 FILL_SUB_SECTION   = PatternFill(start_color="EDF2F9", end_color="EDF2F9", fill_type="solid")
+
+# Titres principaux (sub_section sans prix = titre de chapitre ex : BATIMENT F, INSTALLATIONS CHANTIER)
+FONT_MAIN_TITLE = Font(bold=True, size=11, color="1F4E79")
+FILL_MAIN_TITLE = PatternFill(start_color="C5D9F1", end_color="C5D9F1", fill_type="solid")  # bleu-gris moyen
+
+# Totaux généraux — fond sombre + texte blanc (FONT_GRAND_TOTAL)
+FILL_MONTANT_HT  = PatternFill(start_color="1F4E79", end_color="1F4E79", fill_type="solid")  # bleu foncé
+FILL_TVA         = PatternFill(start_color="2E75B6", end_color="2E75B6", fill_type="solid")  # bleu moyen
+FILL_MONTANT_TTC = PatternFill(start_color="0D2137", end_color="0D2137", fill_type="solid")  # bleu très foncé
 
 FILL_ERROR   = PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid")
 FILL_WARNING = PatternFill(start_color="FFE4B5", end_color="FFE4B5", fill_type="solid")
@@ -62,6 +72,14 @@ THIN_BORDER = Border(
     left=Side(style="thin"), right=Side(style="thin"),
     top=Side(style="thin"),  bottom=Side(style="thin"),
 )
+THICK_TOP_BORDER = Border(
+    left=Side(style="thin"),  right=Side(style="thin"),
+    top=Side(style="medium"), bottom=Side(style="thin"),
+)
+
+# Formats numériques
+MONEY_FORMAT = '#,##0.00 €'
+QTY_FORMAT   = '#,##0.000'
 
 
 # ---------------------------------------------------------------------------
@@ -192,9 +210,10 @@ def export_tco(
     excel_row = 3
     
     # Tracking pour les formules dynamiques
-    section_articles: dict[str, list[int]]  = {}  # { '01.1': [row_idx, ...], ... }
-    section_total_row: dict[str, int] = {}  # { '01.1': row_idx, ... }
-    recap_summary_rows: list[int] = []  # [row_idx, ...]
+    section_articles: dict[str, list[int]] = {}   # { '01.1': [row_idx, ...] }
+    section_total_row: dict[str, int] = {}         # { '01.1': recap_row_idx }
+    section_header_rows: dict[str, int] = {}       # { '01.1': section_header_row_idx }
+    recap_summary_rows: list[int] = []             # [row_idx, ...]
     
     current_section_code: str | None = None
     
@@ -220,6 +239,7 @@ def export_tco(
             current_section_code = code
             if current_section_code not in section_articles:
                 section_articles[current_section_code] = []
+            section_header_rows[current_section_code] = excel_row
 
         ws.cell(row=excel_row, column=1, value=code)
         ws.cell(row=excel_row, column=2, value=row["Désignation"])
@@ -228,11 +248,15 @@ def export_tco(
         ws.cell(row=excel_row, column=5, value=row.get("Px_U_HT"))
         
         # --- Colonne F : TCO / Estimation ---
+        # FIX CAS 2/3/4 : sub_section ET article contribuent au total de leur section.
+        # Les sub_sections (Entete _Niv1/_Niv2) ont des prix propres (ex: 06.5.3.2)
+        # et doivent apparaître dans le SUM recap — elles étaient silencieusement omises.
+        if row_type in ("article", "sub_section") and current_section_code:
+            section_articles[current_section_code].append(excel_row)
+
         if row_type == "article":
-            if current_section_code:
-                section_articles[current_section_code].append(excel_row)
             ws.cell(row=excel_row, column=6, value=f"=C{excel_row}*E{excel_row}")
-            
+
         elif row_type == "recap":
             # Total de la section (ligne grise)
             rows = section_articles.get(current_section_code, [])
@@ -271,6 +295,17 @@ def export_tco(
         elif re.search(r"montant\s+ttc", desig_lower):
             if ht_row_idx is not None and tva_row_idx is not None:
                 ws.cell(row=excel_row, column=6, value=f"=F{ht_row_idx}+F{tva_row_idx}")
+            else:
+                ws.cell(row=excel_row, column=6, value=row.get("Px_Tot_HT"))
+        elif row_type == "sub_section":
+            # PARTIE 3 : formule =C*E si Qu. et Px_U_HT présents, sinon montant merger
+            try:
+                qu_val = float(row.get("Qu.", 0) or 0)
+                px_u_val = float(row.get("Px_U_HT", 0) or 0)
+            except (ValueError, TypeError):
+                qu_val = px_u_val = 0.0
+            if qu_val != 0 and px_u_val != 0:
+                ws.cell(row=excel_row, column=6, value=f"=C{excel_row}*E{excel_row}")
             else:
                 ws.cell(row=excel_row, column=6, value=row.get("Px_Tot_HT"))
         else:
@@ -314,23 +349,85 @@ def export_tco(
                     ws.cell(row=excel_row, column=col_offset + 2, value=row.get(f"{comp}_Px_Tot_HT"))
             elif re.search(r"montant\s+ttc", desig_lower):
                 if ht_row_idx is not None and tva_row_idx is not None:
-                    ws.cell(row=excel_row, column=col_offset + 2, value=f"={tot_col}{ht_row_idx}+{tot_col}{tva_row_idx}")
+                    ws.cell(row=excel_row, column=col_offset + 2,
+                            value=f"={tot_col}{ht_row_idx}+{tot_col}{tva_row_idx}")
                 else:
-                    ws.cell(row=excel_row, column=col_offset + 2, value=row.get(f"{comp}_Px_Tot_HT"))
+                    ws.cell(row=excel_row, column=col_offset + 2,
+                            value=row.get(f"{comp}_Px_Tot_HT"))
+            elif row_type == "sub_section":
+                # PARTIE 3 : formule dynamique si données présentes
+                try:
+                    comp_qu = float(row.get(f"{comp}_Qu.", 0) or 0)
+                    comp_px = float(row.get(f"{comp}_Px_U_HT", 0) or 0)
+                except (ValueError, TypeError):
+                    comp_qu = comp_px = 0.0
+                if comp_qu != 0 and comp_px != 0:
+                    ws.cell(row=excel_row, column=col_offset + 2,
+                            value=f"={qu_col}{excel_row}*{px_col}{excel_row}")
+                else:
+                    ws.cell(row=excel_row, column=col_offset + 2,
+                            value=row.get(f"{comp}_Px_Tot_HT"))
             else:
                 ws.cell(row=excel_row, column=col_offset + 2, value=row.get(f"{comp}_Px_Tot_HT"))
                 
             ws.cell(row=excel_row, column=col_offset + 3, value=row.get(f"{comp}_Commentaire"))
             col_offset += 4
 
-        # Style ...
+        # --- Format numérique (appliqué à toutes les lignes) ---
+        ws.cell(row=excel_row, column=3).number_format = QTY_FORMAT    # Qu. TCO
+        ws.cell(row=excel_row, column=5).number_format = MONEY_FORMAT  # Px U HT TCO
+        ws.cell(row=excel_row, column=6).number_format = MONEY_FORMAT  # Px Tot HT TCO
+        _ncol = 7
+        for _ in companies:
+            ws.cell(row=excel_row, column=_ncol).number_format     = QTY_FORMAT    # Qu. entreprise
+            ws.cell(row=excel_row, column=_ncol + 1).number_format = MONEY_FORMAT  # Px U HT entreprise
+            ws.cell(row=excel_row, column=_ncol + 2).number_format = MONEY_FORMAT  # Px Tot HT entreprise
+            _ncol += 4
+
+        # --- Style ---
         font, fill = _get_row_style(row_type)
+
+        # PARTIE 2 : sub_section sans prix → titre principal (BATIMENT F, etc.)
+        if row_type == "sub_section":
+            try:
+                px_val = float(row.get("Px_Tot_HT", 0) or 0)
+            except (ValueError, TypeError):
+                px_val = 0.0
+            if px_val == 0:
+                font, fill = FONT_MAIN_TITLE, FILL_MAIN_TITLE
+
+        # Hiérarchie visuelle : surcharge pour les lignes totaux généraux
+        if row_type == "total_line":
+            if re.search(r"montant\s+ht", desig_lower):
+                font, fill = FONT_GRAND_TOTAL, FILL_MONTANT_HT
+            elif re.search(r"\btva\b", desig_lower) and not re.search(r"\bht\b", desig_lower):
+                font, fill = FONT_GRAND_TOTAL, FILL_TVA
+            elif re.search(r"montant\s+ttc|(?<!\w)ttc(?!\w)", desig_lower):
+                font, fill = FONT_GRAND_TOTAL, FILL_MONTANT_TTC
+
+        # Bordure supérieure épaisse pour les lignes structurelles
+        _border = (
+            THICK_TOP_BORDER
+            if row_type in ("section_header", "recap", "recap_summary", "total_line")
+            else THIN_BORDER
+        )
+
         for c in range(1, max_col + 1):
             cell = ws.cell(row=excel_row, column=c)
             cell.font = font
-            cell.border = THIN_BORDER
+            cell.border = _border
             if fill:
                 cell.fill = fill
+
+        # Indentation hiérarchique de la désignation (col B)
+        if row_type == "article":
+            ws.cell(row=excel_row, column=2).alignment = Alignment(
+                horizontal="left", indent=2
+            )
+        elif row_type == "sub_section" and font is not FONT_MAIN_TITLE:
+            ws.cell(row=excel_row, column=2).alignment = Alignment(
+                horizontal="left", indent=1
+            )
 
         if code and code in alert_by_code and row_type == "article":
             for alert in alert_by_code[code]:
@@ -344,11 +441,36 @@ def export_tco(
 
         excel_row += 1
 
+    # PARTIE 3 : Injection différée des formules pour section_header
+    # Les plages d'articles/sub_sections ne sont connues qu'après le parcours complet.
+    for sh_code, sh_row in section_header_rows.items():
+        recap_row = section_total_row.get(sh_code)
+        art_rows = section_articles.get(sh_code, [])
+
+        # Col F : référencer le recap (=F{recap_row}) ou sommer les enfants
+        if recap_row:
+            ws.cell(row=sh_row, column=6, value=f"=F{recap_row}")
+        elif art_rows:
+            formula = "=SUM(" + ",".join(f"F{r}" for r in art_rows) + ")"
+            ws.cell(row=sh_row, column=6, value=formula)
+
+        # Colonnes entreprises
+        c_off = 7
+        for _ in companies:
+            tc = get_column_letter(c_off + 2)
+            if recap_row:
+                ws.cell(row=sh_row, column=c_off + 2, value=f"={tc}{recap_row}")
+            elif art_rows:
+                formula = "=SUM(" + ",".join(f"{tc}{r}" for r in art_rows) + ")"
+                ws.cell(row=sh_row, column=c_off + 2, value=formula)
+            c_off += 4
+
     _auto_width(ws)
     ws.column_dimensions["B"].width = 55  # Force Désignation width
 
-    # QW-4 : Figer les lignes d'en-tête pour la navigation
-    ws.freeze_panes = "A3"
+    # Figer lignes 1+2 (en-têtes) ET colonnes A (Code) + B (Désignation)
+    # Règle OpenPyXL : ancre "C3" → lignes < 3 figées + colonnes < C figées
+    ws.freeze_panes = "C3"
 
     log.info("Workbook prêt. Output_path=%s", output_path)
 

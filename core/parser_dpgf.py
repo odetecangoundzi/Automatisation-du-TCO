@@ -9,9 +9,10 @@ Utilise la colonne Entete (col M) pour classifier chaque ligne.
 from __future__ import annotations
 import os
 import re
+from decimal import Decimal, ROUND_HALF_UP
 import pandas as pd
 
-from core.utils import find_header_row, classify_row
+from core.utils import find_header_row, classify_row, find_column_index
 from config import TOTAL_TOLERANCE_ABS, TOTAL_TOLERANCE_REL
 from logger import get_logger
 
@@ -38,53 +39,65 @@ KEYWORDS = {
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _clean_numeric(value: int | float | str | None) -> tuple[float, str]:
+def _clean_numeric(value: int | float | str | None) -> tuple[Decimal, str]:
     """
     Nettoie une valeur potentiellement numérique.
-    Retourne (nombre_float, texte_annotation).
+    Retourne (nombre_decimal, texte_annotation).
     """
     if pd.isna(value):
-        return 0.0, ""
+        return Decimal("0.0"), ""
     if isinstance(value, (int, float)):
-        return float(value), ""
+        return Decimal(str(value)), ""
 
     text = str(value).strip()
     if not text:
-        return 0.0, ""
+        return Decimal("0.0"), ""
 
     text_lower = text.lower().strip()
     for keyword, abbrev in KEYWORDS.items():
         if keyword in text_lower:
-            return 0.0, abbrev
+            return Decimal("0.0"), abbrev
 
     cleaned = text.replace(" ", "").replace("\u00a0", "").replace(",", ".")
-    match   = re.search(r"-?\d+(?:\.\d+)?", cleaned)
-    if match:
+    
+    # On cherche tous les nombres
+    matches = re.findall(r"-?\d+(?:\.\d+)?", cleaned)
+    if matches:
         try:
-            number    = float(match.group())
-            remaining = re.sub(r"-?\d+(?:\.\d+)?", "", cleaned).strip()
+            # P2 FIX: On prend le DERNIER nombre (souvent le prix ou la quantité finale)
+            # car les premiers nombres sont souvent des indices de lot ou d'article.
+            number_str = matches[-1]
+            number    = Decimal(number_str)
+            
+            # Reconstruction du commentaire en excluant la DERNIÈRE occurrence de ce nombre
+            # (cohérent avec matches[-1] — on retire la dernière, pas la première)
+            last_pos  = cleaned.rfind(number_str)
+            remaining = (cleaned[:last_pos] + cleaned[last_pos + len(number_str):]).strip()
             remaining = remaining.strip("()[]{}/ ")
+            # On nettoie un peu le résidu s'il reste des points ou tirets
+            remaining = re.sub(r"^[.\-:]+", "", remaining).strip()
+            
             return number, remaining
-        except ValueError:
+        except (ValueError, Exception):
             pass
 
-    return 0.0, text
+    return Decimal("0.0"), text
 
 
 def _check_total_coherence(
-    qu_val: float, pu_val: float, total_val: float, row_idx: int, code: str
+    qu_val: Decimal, pu_val: Decimal, total_val: Decimal, row_idx: int, code: str
 ) -> dict | None:
     """Vérifie que Qu × PU ≈ Total (tolérance absolue ET relative)."""
     if qu_val and pu_val and total_val:
         try:
-            expected = float(qu_val) * float(pu_val)
-            actual   = float(total_val)
+            expected = (qu_val * pu_val).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+            actual   = total_val.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
             if actual != 0:
                 abs_diff = abs(expected - actual)
                 rel_diff = abs_diff / abs(actual)
-                if abs_diff > TOTAL_TOLERANCE_ABS and rel_diff > TOTAL_TOLERANCE_REL:
+                if abs_diff > Decimal(str(TOTAL_TOLERANCE_ABS)) and rel_diff > Decimal(str(TOTAL_TOLERANCE_REL)):
                     log.warning(
-                        "Total incohérent ligne %d code=%s : %.2f × %.2f = %.2f ≠ %.2f",
+                        "Total incohérent ligne %d code=%s : %s × %s = %s ≠ %s",
                         row_idx, code, qu_val, pu_val, expected, actual,
                     )
                     return {
@@ -94,11 +107,11 @@ def _check_total_coherence(
                         "code":    code,
                         "message": (
                             f"Total incohérent : {qu_val} × {pu_val} = "
-                            f"{expected:.2f} ≠ {actual:.2f} "
-                            f"(écart {abs_diff:.2f} €)"
+                            f"{expected} ≠ {actual} "
+                            f"(écart {abs_diff} €)"
                         ),
                     }
-        except (ValueError, TypeError):
+        except (ValueError, TypeError, Exception):
             pass
     return None
 
@@ -123,13 +136,40 @@ def parse_dpgf(filepath: str) -> tuple[pd.DataFrame, list[dict]]:
     elif ext == ".xlsb": engine = "pyxlsb"
     elif ext in [".xlsx", ".xlsm"]: engine = "openpyxl"
 
+    # Robustesse XLSX : data_only=True pour lire les valeurs cachées au lieu
+    # du texte de la formule (ex: évite que "=C5*E5" arrive dans _clean_numeric)
+    _engine_kwargs = {"data_only": True} if engine == "openpyxl" else {}
+
     try:
-        # Lecture sans header pour trouver la table
-        df_raw = pd.read_excel(filepath, engine=engine, header=None)
+        # Détection de la feuille de données : certains DPGF ont une feuille décorative
+        # (ex: "PAGE DE GARDE") en position 0 — on scanne toutes les feuilles.
+        xl_file   = pd.ExcelFile(filepath, engine=engine)
+        all_sheets = xl_file.sheet_names
+        sheet_name = all_sheets[0]  # défaut : première feuille
+
+        for sn in all_sheets:
+            df_probe = pd.read_excel(
+                filepath, engine=engine, header=None, sheet_name=sn, engine_kwargs=_engine_kwargs
+            )
+            try:
+                find_header_row(df_probe)
+                sheet_name = sn
+                break
+            except ValueError:
+                continue  # cette feuille n'a pas d'en-tête valide
+
+        if sheet_name != all_sheets[0]:
+            log.info("Feuille de données détectée : '%s' (feuille 0='%s' ignorée)", sheet_name, all_sheets[0])
+
+        df_raw = pd.read_excel(
+            filepath, engine=engine, header=None, sheet_name=sheet_name, engine_kwargs=_engine_kwargs
+        )
         header_row_idx = find_header_row(df_raw)
-        
+
         # Re-lecture avec le bon header
-        df_data = pd.read_excel(filepath, engine=engine, skiprows=header_row_idx)
+        df_data = pd.read_excel(
+            filepath, engine=engine, skiprows=header_row_idx, sheet_name=sheet_name, engine_kwargs=_engine_kwargs
+        )
     except Exception as e:
         log.error("Erreur de structure DPGF: %s", e)
         return pd.DataFrame(), [{"type": "error", "color": "red", "row": 0, "code": "", "message": str(e)}]
@@ -138,29 +178,38 @@ def parse_dpgf(filepath: str) -> tuple[pd.DataFrame, list[dict]]:
     rows       = []
     current_section_code = ""
 
-    # Les colonnes sont identifiées par position
-    # 0: Code, 1: Designation, 2: Quantité, 3: Unité, 4: Px U, 5: Px Tot, 12: Entete (col M)
+    # Dynamic column mapping
+    idx_code   = find_column_index(df_data, ["code"], 0)
+    idx_desig  = find_column_index(df_data, ["désignation", "designation", "libellé"], 1)
+    idx_qu     = find_column_index(df_data, ["qu.", "quantité", "qte", "qté"], 2)
+    idx_u      = find_column_index(df_data, ["u", "unité"], 3)
+    idx_pu     = find_column_index(df_data, ["px u", "p.u", "prix u"], 4)
+    idx_tot    = find_column_index(df_data, ["px tot", "total ht", "prix tot"], 5)
+    idx_entete = find_column_index(df_data, ["entete", "entête"], 12)
+
     for idx_in_df, xl_row in df_data.iterrows():
         row_idx = idx_in_df + header_row_idx + 2  # conversion en 1-indexed Excel row
         
-        if len(xl_row) < 6:
+        if len(xl_row) <= max(idx_code, idx_desig, idx_qu, idx_pu, idx_tot):
             continue
 
-        code_raw   = xl_row.iloc[0]
-        desig_raw  = xl_row.iloc[1]
-        cc_raw     = xl_row.iloc[2]
-        u          = xl_row.iloc[3]
-        px_u_raw   = xl_row.iloc[4]
-        px_tot_raw = xl_row.iloc[5]
-        entete     = xl_row.iloc[12] if len(xl_row) > 12 else None
+        code_raw   = xl_row.iloc[idx_code]
+        desig_raw  = xl_row.iloc[idx_desig]
+        cc_raw     = xl_row.iloc[idx_qu]
+        u          = xl_row.iloc[idx_u]
+        px_u_raw   = xl_row.iloc[idx_pu]
+        px_tot_raw = xl_row.iloc[idx_tot]
+        entete     = xl_row.iloc[idx_entete] if len(xl_row) > idx_entete else None
 
         code_str  = str(code_raw).strip()  if pd.notna(code_raw)  else ""
         desig_str = str(desig_raw).strip() if pd.notna(desig_raw) else ""
         ent_str   = str(entete).strip()    if pd.notna(entete)    else ""
 
-        has_price = bool(
-            (pd.notna(cc_raw) and (isinstance(cc_raw, (int, float)) or str(cc_raw).strip())) and 
-            (pd.notna(px_u_raw) and (isinstance(px_u_raw, (int, float)) or str(px_u_raw).strip()))
+        # P10 FIX : has_price = True uniquement si les deux valeurs sont des nombres réels
+        # (évite que "SANS OBJET" ou "P-M" dans ces cellules produise has_price=True)
+        has_price = (
+            isinstance(cc_raw, (int, float)) and not pd.isna(cc_raw)
+            and isinstance(px_u_raw, (int, float)) and not pd.isna(px_u_raw)
         )
 
         row_type = classify_row(code_str, desig_str, ent_str, has_price=has_price)
@@ -175,9 +224,9 @@ def parse_dpgf(filepath: str) -> tuple[pd.DataFrame, list[dict]]:
             pu_val,  pu_comment  = _clean_numeric(px_u_raw)
             tot_val, tot_comment = _clean_numeric(px_tot_raw)
         else:
-            qu_val  = cc_raw     if isinstance(cc_raw,     (int, float)) else 0.0
-            pu_val  = px_u_raw   if isinstance(px_u_raw,   (int, float)) else 0.0
-            tot_val = px_tot_raw if isinstance(px_tot_raw, (int, float)) else 0.0
+            qu_val  = Decimal(str(cc_raw))     if isinstance(cc_raw,     (int, float)) and not pd.isna(cc_raw)     else Decimal("0.0")
+            pu_val  = Decimal(str(px_u_raw))   if isinstance(px_u_raw,   (int, float)) and not pd.isna(px_u_raw)   else Decimal("0.0")
+            tot_val = Decimal(str(px_tot_raw)) if isinstance(px_tot_raw, (int, float)) and not pd.isna(px_tot_raw) else Decimal("0.0")
             qu_comment = pu_comment = tot_comment = ""
 
         comments    = [c for c in [qu_comment, pu_comment, tot_comment] if c]

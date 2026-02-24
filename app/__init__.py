@@ -302,6 +302,10 @@ footer {{ visibility: hidden; }}
 [data-testid="stSidebar"] {{
     display: {sidebar_display} !important;
 }}
+/* Masque aussi le bouton d'expansion flottant (step 0) */
+[data-testid="collapsedControl"] {{
+    display: {sidebar_display} !important;
+}}
 
 /* ── Step 0 Cards ────────────────────────────────────── */
 [data-testid="stVerticalBlockBorderWrapper"] {{

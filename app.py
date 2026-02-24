@@ -88,6 +88,8 @@ defaults = {
     "tva_rate":      TVA_DEFAULT,
     "confirm_remove":None,  # UX-4 : stocke le nom de l'entreprise à supprimer
     "dark_mode":     False,
+    "export_done":   False,
+    "_flash_msg":    None,   # P12 : message court affiché après rerun
 }
 for k, v in defaults.items():
     if k not in st.session_state:
@@ -166,18 +168,8 @@ def display_alerts(alerts, title="Alertes"):
     if not alerts:
         st.success("✅ Aucune anomalie détectée")
         return
-        
-    counts = {}
-    for a in alerts:
-        t = a.get("type", "info")
-        counts[t] = counts.get(t, 0) + 1
-        
-    cols = st.columns(3)
-    if counts.get("error"):   cols[0].error(f"🔴 {counts['error']} erreur(s)")
-    if counts.get("warning"): cols[1].warning(f"🟡 {counts['warning']} avertissement(s)")
-    if counts.get("info"):    cols[2].info(f"🔵 {counts['info']} info(s)")
-        
-    with st.expander(f"📋 {title} — détail", expanded=False):
+
+    with st.expander(f"📋 {title} — détails", expanded=False):
         for a in alerts:
             icon = {"error": "🔴", "warning": "🟡", "info": "🔵"}.get(a["type"], "ℹ️")
             st.write(f"{icon} **{a.get('code', '')}** — {a.get('message', '')}")
@@ -189,7 +181,7 @@ def display_preview(df, title="Aperçu"):
     hidden_types = {"empty", "recap", "recap_summary", "total_line", "total_text"}
     visible = df[~df["row_type"].isin(hidden_types)][cols]
     st.write(f"**{title}** ({len(visible)} lignes)")
-    st.dataframe(visible, width="stretch", hide_index=True, height=500)
+    st.dataframe(visible, use_container_width=True, hide_index=True, height=500)
 
 
 def _cleanup_file(path):
@@ -210,104 +202,40 @@ def _cleanup_file(path):
 
 if st.session_state.step > 0:
     with st.sidebar:
-        # Logo Odetec
+        # Logo
         if os.path.exists("odetec_logo.png"):
-            st.image("odetec_logo.png", width="stretch")
-        
-        # UX-2 : Titre du projet plus visible
-        curr_name = st.session_state.get("current_project", "")
-        proj_name = st.text_input(
-            "Titre du projet", 
-            value=curr_name,
-            placeholder="Nom du projet...",
-            key="proj_title_input",
+            st.image("odetec_logo.png", use_container_width=True)
+
+        st.markdown("---")
+
+        # Nom du projet en cours — affiché, non éditable
+        curr_name = st.session_state.get("current_project", "Sans titre")
+        st.markdown(
+            f"<div style='"
+            f"background: linear-gradient(135deg, #2F5496, #4472C4);"
+            f"color: white; padding: 12px 16px; border-radius: 10px;"
+            f"font-weight: 600; font-size: 0.95rem; word-break: break-word;"
+            f"margin-bottom: 0.5rem;'>"
+            f"📁 {curr_name}</div>",
+            unsafe_allow_html=True,
         )
-        if proj_name != curr_name:
-            st.session_state.current_project = proj_name
-
-        col_save, col_exit = st.columns(2)
-        with col_save:
-            if st.button("💾 Enregistrer", use_container_width=True, type="primary"):
-                if proj_name:
-                    ok, msg = save_project(proj_name, st.session_state)
-                    if ok: st.success(msg)
-                    else: st.error(msg)
-                else:
-                    st.warning("Nom requis.")
-        with col_exit:
-            if st.button("🚪 Quitter", use_container_width=True, help="Revient à l'accueil"):
-                for k in ["tco_df", "company_data", "tco_meta", "step", "merged_df", "all_alerts", "current_project"]:
-                    if k in st.session_state: del st.session_state[k]
-                st.session_state.step = 0
-                st.rerun()
 
         st.markdown("---")
-        st.markdown("### 📋 Mes Projets")
-        
-        projects = list_projects()
-        if projects:
-            for p in projects:
-                row_col1, row_col2, row_col3 = st.columns([1, 1, 4])
-                with row_col1:
-                    # UX-2 : Sauvegarder dans cet emplacement
-                    if st.button("💾", key=f"side_save_{p}", help=f"Enregistrer sous {p}"):
-                        ok, msg = save_project(p, st.session_state)
-                        if ok: st.success(msg)
-                        else: st.error(msg)
-                with row_col2:
-                    if st.button("🗑️", key=f"side_del_{p}", help=f"Supprimer {p}"):
-                        if delete_project(p):
-                            st.rerun()
-                with row_col3:
-                    if st.button(f"{p}", key=f"side_load_{p}", use_container_width=True):
-                        ok, msg = load_project(p, st.session_state)
-                        if ok:
-                            if "export_buffer" in st.session_state:
-                                del st.session_state.export_buffer
-                            st.rerun()
-                        else: st.error(msg)
-        else:
-            st.caption("Aucun projet sauvegardé.")
-    
-        st.markdown("---")
-        st.markdown("### ⚙️ Paramètres")
-        
-        dark = st.toggle("🌙 Mode sombre", value=st.session_state.dark_mode)
-        if dark != st.session_state.dark_mode:
-            st.session_state.dark_mode = dark
+
+        # Retour à l'accueil
+        if st.button("🏠 Retour à l'accueil", use_container_width=True, type="primary"):
+            for k in ["tco_df", "company_data", "tco_meta", "merged_df", "all_alerts", "current_project"]:
+                if k in st.session_state:
+                    del st.session_state[k]
+            st.session_state.step = 0
             st.rerun()
 
         st.markdown("---")
-        st.markdown("### 📊 Taxes")
-        
-        # UX-1 : Taux TVA paramétrable
-        tva_labels = {v: k for k, v in TVA_OPTIONS.items()}
-        selected_tva = st.selectbox(
-            "Taux de TVA par défaut",
-            options=list(TVA_OPTIONS.values()),
-            format_func=lambda x: tva_labels.get(x, f"{x*100}%"),
-            index=list(TVA_OPTIONS.values()).index(st.session_state.tva_rate) if st.session_state.tva_rate in TVA_OPTIONS.values() else 0,
-            help="Taux appliqué aux lignes de total (TVA / TTC)"
-        )
-        
-        if selected_tva != st.session_state.tva_rate:
-            st.session_state.tva_rate = selected_tva
-            if st.session_state.company_data:
-                rebuild_merged_tco(selected_tva)
-                if "export_buffer" in st.session_state:
-                    del st.session_state.export_buffer
-            st.rerun()
 
-        st.markdown("---")
-        st.markdown("### 🛑 Système")
-        
-        pass
-
-        # SEC-6 : Bouton kill protégé par variable d'environnement
-        if os.getenv("TCO_ADMIN_MODE", "false").lower() == "true":
-            if st.button("❌ Fermer l'application", use_container_width=True, help="Arrête le serveur"):
-                st.warning("Arrêt de l'application...")
-                os.kill(os.getpid(), signal.SIGTERM)
+        # Fermer l'application
+        if st.button("❌ Fermer l'application", use_container_width=True, help="Arrête le serveur Streamlit"):
+            st.warning("Arrêt de l'application...")
+            os.kill(os.getpid(), signal.SIGTERM)
 
 is_dark = st.session_state.dark_mode
 
@@ -364,12 +292,8 @@ if st.session_state.step == 0:
             projects = list_projects()
             if projects:
                 for p in projects:
-                    rcol1, rcol2 = st.columns([1, 7])
-                    with rcol1:
-                        if st.button("🗑️", key=f"landing_del_{p}", help=f"Supprimer {p}"):
-                            if delete_project(p):
-                                st.rerun()
-                    with rcol2:
+                    rcol_name, rcol_del = st.columns([7, 1])
+                    with rcol_name:
                         if st.button(f"📄 {p}", key=f"landing_load_{p}", use_container_width=True):
                             ok, msg = load_project(p, st.session_state)
                             if ok:
@@ -380,6 +304,10 @@ if st.session_state.step == 0:
                                 st.rerun()
                             else:
                                 st.error(msg)
+                    with rcol_del:
+                        if st.button("🗑️", key=f"landing_del_{p}", help=f"Supprimer {p}"):
+                            if delete_project(p):
+                                st.rerun()
             else:
                 st.caption("Aucun projet sauvegardé pour le moment.")
 
@@ -426,7 +354,8 @@ if st.session_state.step >= 1:
                             f"📋 **Projet :** {info.get('projet','N/A')} — "
                             f"**Lot :** {info.get('lot','N/A')}"
                         )
-                    st.success(f"✅ TCO chargé — {len(tco_df)} lignes")
+                    template_name = os.path.splitext(tco_file.name)[0]
+                    st.success(f"✅ Template {template_name} chargé — {len(tco_df)} lignes")
                 except Exception as e:
                     log.error("Erreur parsing TCO", exc_info=True)
                     st.error(f"❌ Erreur de lecture : {e}")
@@ -435,7 +364,7 @@ if st.session_state.step >= 1:
 
     if st.session_state.tco_df is not None:
         if st.session_state.step == 1:
-            if st.button("✅ Valider le TCO et continuer", type="primary"):
+            if st.button("➡️ Passer à l'étape suivante", type="primary"):
                 st.session_state.step = 2
                 st.rerun()
 
@@ -451,8 +380,12 @@ if st.session_state.step >= 2:
     )
 
     st.divider()
-    
-    
+
+    # P12 : affichage du message de confirmation après rerun
+    if st.session_state._flash_msg:
+        st.success(st.session_state._flash_msg)
+        st.session_state._flash_msg = None
+
     # UX-4 : Confirmation de suppression (Dialogue modal simulé)
     if st.session_state.confirm_remove:
         to_remove = st.session_state.confirm_remove
@@ -463,7 +396,11 @@ if st.session_state.step >= 2:
                 del st.session_state.company_data[to_remove]
                 st.session_state.confirm_remove = None
                 rebuild_merged_tco(st.session_state.tva_rate)
-                st.success(f"Entreprise {to_remove} supprimée.")
+                if "export_buffer" in st.session_state:
+                    del st.session_state.export_buffer
+                # BUG-A FIX : incrémenter upload_counter pour réinitialiser le widget file_uploader
+                st.session_state.upload_counter += 1
+                st.session_state._flash_msg = f"✅ Entreprise **{to_remove}** supprimée."
                 st.rerun()
         with col_n:
             if st.button("❌ Annuler"):
@@ -498,25 +435,30 @@ if st.session_state.step >= 2:
         st.warning(f"⚠️ Limite de {MAX_COMPANIES} entreprises atteinte.")
     else:
         # UX-5 : Multi-upload
+        # BUG-A FIX : clé dynamique via upload_counter pour forcer la réinitialisation
+        # du widget après suppression d'une entreprise (évite que Streamlit garde le
+        # fichier précédent en mémoire et ignore un re-upload du même fichier)
         dpgf_files = st.file_uploader(
-            "Importer un ou plusieurs DPGF entreprise", 
+            "Importer un ou plusieurs DPGF entreprise",
             type=["xlsx"],
-            key="multi_dpgf_upload",
+            key=f"multi_dpgf_upload_{st.session_state.upload_counter}",
             accept_multiple_files=True,
             help="Sélectionnez tous les fichiers DPGF des entreprises à fusionner (Format .xlsx)"
         )
 
         if dpgf_files:
-            if st.button(f"⚙️ Traiter les {len(dpgf_files)} fichiers", type="primary", use_container_width=True):
+            # Traitement automatique : seuls les fichiers non encore importés sont traités
+            processed_filenames = {v["filename"] for v in st.session_state.company_data.values()}
+            new_files = [f for f in dpgf_files if f.name not in processed_filenames]
+
+            if new_files:
                 success_count = 0
-                for dpgf_file in dpgf_files:
-                    # Déduction du nom
+                for dpgf_file in new_files:
                     filename_clean = os.path.splitext(dpgf_file.name)[0]
-                    company_name = re.sub(r"^DPGF\s+", "", filename_clean, flags=re.IGNORECASE).strip().upper()
-                    
-                    if company_name in st.session_state.company_data:
-                        st.info(f"ℹ️ {company_name} déjà présent, mise à jour...")
-                    
+                    company_name = re.sub(
+                        r"^DPGF\s+", "", filename_clean, flags=re.IGNORECASE
+                    ).strip().upper()
+
                     path = _safe_save(dpgf_file)
                     if path:
                         with st.spinner(f"🔄 Fusion de {company_name}..."):
@@ -533,27 +475,19 @@ if st.session_state.step >= 2:
                                 st.error(f"❌ Erreur sur {company_name}: {e}")
                             finally:
                                 _cleanup_file(path)
-                
+
                 if success_count > 0:
                     rebuild_merged_tco(st.session_state.tva_rate)
-                    st.success(f"✅ {success_count} entreprise(s) traitée(s) avec succès !")
+                    if "export_buffer" in st.session_state:
+                        del st.session_state.export_buffer
+                    st.session_state.step = 3
+                    st.session_state.export_done = False
                     st.rerun()
 
-    col_nav1, col_nav2 = st.columns(2)
-    with col_nav1:
-        if st.session_state.company_data:
-            if st.button("➡️ Passer au résultat final", type="primary"):
-                st.session_state.step = 3
-                # Reset export buffer to ensure fresh data
-                if "export_buffer" in st.session_state:
-                    del st.session_state.export_buffer
-                st.session_state.export_done = False
-                st.rerun()
-    with col_nav2:
-        if st.button("🔄 Tout réinitialiser"):
-            for k in list(st.session_state.keys()):
-                del st.session_state[k]
-            st.rerun()
+    if st.button("🔄 Tout réinitialiser"):
+        for k in list(st.session_state.keys()):
+            del st.session_state[k]
+        st.rerun()
 
 
 # ---------------------------------------------------------------------------
@@ -621,7 +555,7 @@ if st.session_state.step >= 3:
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             type="primary",
             on_click=on_export_click,
-            width="stretch"
+            use_container_width=True,
         )
         
         if st.session_state.get("export_done"):

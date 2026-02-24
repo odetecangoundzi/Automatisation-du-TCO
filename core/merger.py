@@ -7,8 +7,7 @@ Les lignes "recap" (Code vide, Entete Bord_xxx_Recap) reçoivent le total
 de leur section parente.
 """
 
-from __future__ import annotations
-
+from decimal import Decimal, ROUND_HALF_UP
 import pandas as pd
 
 from config import TVA_DEFAULT
@@ -43,17 +42,13 @@ def _get_children_total(
     parent_code: str,
     total_col: str,
     children_index: dict[str, list[int]],
-) -> float:
+) -> Decimal:
     """
     Calcule la somme des valeurs d'une colonne pour tous les enfants
     (articles ET sub_sections) d'une section.
-
-    Args:
-        children_index : dict {code: [idx, ...]} pré-calculé
     """
     prefix = parent_code + "."
-    total  = 0.0
-    count  = 0
+    total  = Decimal("0.0")
     for code, idx_list in children_index.items():
         if not code.startswith(prefix):
             continue
@@ -63,11 +58,13 @@ def _get_children_total(
                 val = row.get(total_col)
                 if val is not None:
                     try:
-                        total += float(val)
-                        count += 1
-                    except (ValueError, TypeError):
+                        if isinstance(val, Decimal):
+                            total += val
+                        else:
+                            total += Decimal(str(val))
+                    except (ValueError, TypeError, Exception):
                         pass
-    return total
+    return total.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
 
 # ---------------------------------------------------------------------------
@@ -111,6 +108,27 @@ def merge_company_into_tco(
         log.warning("Le DPGF de %s est vide. Aucune fusion effectuée.", company_name)
         return merged_df, [{"type": "warning", "color": "orange", "row": 0, "code": "", "message": "Fichier DPGF vide ou non reconnu."}]
 
+    # LOT MISMATCH DETECTION
+    # On regarde le premier code d'article du DPGF
+    dpgf_articles = dpgf_df[dpgf_df["row_type"] == "article"]
+    if not dpgf_articles.empty:
+        first_code = _normalize_code(dpgf_articles.iloc[0]["Code"])
+        if "." in first_code:
+            dpgf_lot_prefix = first_code.split(".")[0]
+            # On cherche un article dans le TCO pour comparer
+            tco_articles = merged_df[merged_df["row_type"] == "article"]
+            if not tco_articles.empty:
+                tco_first_code = _normalize_code(tco_articles.iloc[0]["Code"])
+                if "." in tco_first_code:
+                    tco_lot_prefix = tco_first_code.split(".")[0]
+                    if dpgf_lot_prefix != tco_lot_prefix:
+                        msg = f"Discordance de LOT détectée : DPGF={dpgf_lot_prefix} vs Modèle={tco_lot_prefix}"
+                        log.error(msg)
+                        alerts.append({
+                            "type": "error", "color": "red", "row": 0, "code": "", "message": msg
+                        })
+                        # On continue quand même la fusion pour montrer ce qui match (souvent rien)
+
     # PERF-1 : index TCO codes → O(1) lookup
     tco_code_index: dict[str, int] = {}
     for idx, row in merged_df.iterrows():
@@ -122,10 +140,25 @@ def merge_company_into_tco(
     # Fusion articles + sub_sections du DPGF
     dpgf_data = dpgf_df[dpgf_df["row_type"].isin(["article", "sub_section"])]
     matched_count = 0
+    insertions: list[tuple[int, int, dict]] = []  # (idx_to_insert_at, original_order, row_data)
 
     for _, dpgf_row in dpgf_data.iterrows():
         code = _normalize_code(dpgf_row["Code"])
         if not code:
+            # CAS 1 FIX : alerter si une ligne sans code porte un montant non nul
+            # (évite la perte silencieuse d'articles mal formatés dans le DPGF)
+            px_tot = dpgf_row.get("Px_Tot_HT")
+            try:
+                if px_tot and Decimal(str(px_tot)) > 0:
+                    desig = str(dpgf_row.get("Désignation", ""))[:60]
+                    alerts.append({
+                        "type": "warning",
+                        "color": "orange",
+                        "code": "",
+                        "message": f"Ligne sans code ignorée (montant={px_tot} €) — {desig}",
+                    })
+            except Exception:
+                pass
             continue
         if code in tco_code_index:
             idx = tco_code_index[code]
@@ -136,57 +169,76 @@ def merge_company_into_tco(
             matched_count += 1
         else:
             # DYNAMIC INSERTION
-            # On tente d'insérer juste avant le récapitualtif de sa section parente
-            # Format attendu : XX.YY.ZZ -> Parent est XX.YY
+            # On tente d'insérer juste avant le récapitulatif de sa section parente
             parent_code = ".".join(code.split(".")[:-1])
-            
+
             # On cherche la ligne 'recap' pour ce parent
             found_insertion = False
             for idx, row in merged_df.iterrows():
                 if row["row_type"] == "recap" and _normalize_code(row.get("parent_code", "")) == parent_code:
-                    # On a trouvé la ligne de récapitulatif de la section
-                    # On insère juste au dessus
                     new_row = {
                         "Code": code,
                         "Désignation": dpgf_row["Désignation"],
                         "Qu.": None, "U": dpgf_row.get("U", ""), "Px_U_HT": None, "Px_Tot_HT": None,
                         "Entete": dpgf_row.get("Entete", "Ouv_Art"),
                         "row_type": "article",
-                        "original_row": idx, # On utilise l'index d'insertion comme référence
-                        "parent_code": parent_code
+                        "original_row": idx,
+                        "parent_code": parent_code,
                     }
-                    # Initialisation des colonnes entreprises connues
                     for col in merged_df.columns:
                         if any(suffix in col for suffix in ["_Qu.", "_Px_U_HT", "_Px_Tot_HT", "_Commentaire"]):
                             new_row[col] = None
-                    
-                    # Remplissage pour cette entreprise
+
                     new_row[col_qu] = dpgf_row["Qu."]
                     new_row[col_pu] = dpgf_row["Px_U_HT"]
                     new_row[col_tot] = dpgf_row["Px_Tot_HT"]
                     new_row[col_com] = dpgf_row.get("Commentaire", "")
-                    
-                    # Insertion dans le DataFrame
-                    # On crée un nouveau DataFrame de 1 ligne et on concat avec du slicing
-                    part1 = merged_df.iloc[:idx]
-                    part2 = merged_df.iloc[idx:]
-                    merged_df = pd.concat([part1, pd.DataFrame([new_row]), part2], ignore_index=True)
-                    
-                    # Mise à jour de l'index des codes pour les fusions suivantes
-                    # ATTENTION: pd.concat avec ignore_index change tous les indices
-                    # On doit reconstruire l'index
-                    tco_code_index = {}
-                    for i, r in merged_df.iterrows():
-                        c = _normalize_code(r["Code"])
-                        if c and r["row_type"] not in ("empty", "recap", "recap_summary"):
-                            if c not in tco_code_index:
-                                tco_code_index[c] = i
-                    
+
+                    # P4 FIX : on stocke (target_idx, ordre_original, data)
+                    insertions.append((idx, len(insertions), new_row))
                     matched_count += 1
                     found_insertion = True
-                    log.info("Insertion dynamique article : %s dans section %s", code, parent_code)
+                    log.info("Insertion programmée pour article : %s dans section %s", code, parent_code)
                     break
-            
+
+            if not found_insertion:
+                # Fallback hiérarchique : si le parent direct est absent du modèle,
+                # remonter d'un niveau à la fois jusqu'à trouver un recap ancêtre.
+                # Cas typique : B2R a ajouté 03.5.2.5 / 03.5.2.6 absents du template.
+                fallback_parts = parent_code.split(".")
+                while len(fallback_parts) > 0 and not found_insertion:
+                    fallback_parts.pop()
+                    if not fallback_parts:
+                        break
+                    fallback_parent = ".".join(fallback_parts)
+                    for idx, row in merged_df.iterrows():
+                        if row["row_type"] == "recap" and _normalize_code(row.get("parent_code", "")) == fallback_parent:
+                            new_row = {
+                                "Code": code,
+                                "Désignation": dpgf_row["Désignation"],
+                                "Qu.": None, "U": dpgf_row.get("U", ""),
+                                "Px_U_HT": None, "Px_Tot_HT": None,
+                                "Entete": dpgf_row.get("Entete", "Ouv_Art"),
+                                "row_type": "article",
+                                "original_row": idx,
+                                "parent_code": fallback_parent,
+                            }
+                            for col in merged_df.columns:
+                                if any(suffix in col for suffix in ["_Qu.", "_Px_U_HT", "_Px_Tot_HT", "_Commentaire"]):
+                                    new_row[col] = None
+                            new_row[col_qu]  = dpgf_row["Qu."]
+                            new_row[col_pu]  = dpgf_row["Px_U_HT"]
+                            new_row[col_tot] = dpgf_row["Px_Tot_HT"]
+                            new_row[col_com] = dpgf_row.get("Commentaire", "")
+                            insertions.append((idx, len(insertions), new_row))
+                            matched_count += 1
+                            found_insertion = True
+                            log.info(
+                                "Insertion repli : '%s' → section ancêtre '%s' (parent direct '%s' absent du modèle)",
+                                code, fallback_parent, parent_code,
+                            )
+                            break
+
             if not found_insertion:
                 alerts.append({
                     "type":    "warning",
@@ -194,6 +246,17 @@ def merge_company_into_tco(
                     "code":    code,
                     "message": f"Code '{code}' du DPGF non trouvé (parent inconnu)",
                 })
+
+    # Application des insertions en ordre décroissant pour préserver les positions
+    # P4 FIX : tri par (target_idx DESC, ordre_original DESC) — pour le même target_idx,
+    # on insère les articles en ordre inverse afin qu'après toutes les insertions
+    # leur ordre final corresponde à l'ordre original du DPGF.
+    if insertions:
+        insertions.sort(key=lambda x: (x[0], x[1]), reverse=True)
+        for target_idx, _order, row_data in insertions:
+            part1 = merged_df.iloc[:target_idx]
+            part2 = merged_df.iloc[target_idx:]
+            merged_df = pd.concat([part1, pd.DataFrame([row_data]), part2], ignore_index=True)
 
     log.info(
         "Fusion terminée : %d lignes matchées, %d non trouvées",
@@ -263,19 +326,23 @@ def _compute_section_totals(
                 df.at[idx, total_col] = val
 
     # Passe 4 : Montant HT / TVA / TTC
-    montant_ht = 0.0
+    montant_ht = Decimal("0.0")
     for idx, row in df.iterrows():
         if row["row_type"] == "section_header":
             val = row.get(total_col)
             if val is not None:
                 try:
-                    montant_ht += float(val)
-                except (ValueError, TypeError):
+                    if isinstance(val, Decimal):
+                        montant_ht += val
+                    else:
+                        montant_ht += Decimal(str(val))
+                except (ValueError, TypeError, Exception):
                     pass
 
     if montant_ht > 0:
-        tva         = montant_ht * tva_rate
-        montant_ttc = montant_ht + tva
+        d_tva_rate  = Decimal(str(tva_rate))
+        tva         = (montant_ht * d_tva_rate).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        montant_ttc = (montant_ht + tva).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
         term_map = {"montant ht": montant_ht, "tva": tva, "ttc": montant_ttc}
         
         for idx, row in df.iterrows():
@@ -299,19 +366,27 @@ def _compute_section_totals(
 
 def _compute_ht_tva_ttc_base(df: pd.DataFrame, tva_rate: float = TVA_DEFAULT) -> None:
     """Calcule Montant HT, TVA, TTC pour la colonne de base Px_Tot_HT."""
-    # MED-5 : Vectorisé avec pandas au lieu de iterrows()
     mask = (
         (df["row_type"] == "section_header")
         & df["Px_Tot_HT"].notna()
-        & df["Px_Tot_HT"].apply(lambda x: isinstance(x, (int, float)))
     )
-    montant_ht = pd.to_numeric(df.loc[mask, "Px_Tot_HT"], errors="coerce").sum()
+    
+    montant_ht = Decimal("0.0")
+    for val in df.loc[mask, "Px_Tot_HT"]:
+        try:
+            if isinstance(val, Decimal):
+                montant_ht += val
+            else:
+                montant_ht += Decimal(str(val))
+        except (ValueError, TypeError, Exception):
+            pass
 
     if montant_ht <= 0:
         return
 
-    tva         = montant_ht * tva_rate
-    montant_ttc = montant_ht + tva
+    d_tva_rate  = Decimal(str(tva_rate))
+    tva         = (montant_ht * d_tva_rate).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    montant_ttc = (montant_ht + tva).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
     term_map    = {"montant ht": montant_ht, "tva": tva, "ttc": montant_ttc}
 
     for idx, row in df.iterrows():
