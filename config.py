@@ -4,6 +4,7 @@ config.py — Configuration centralisée du TCO Automator.
 ARCH-3 : Toutes les constantes métier et techniques sont ici.
 Modifier ce fichier pour adapter l'application à votre contexte.
 Les valeurs peuvent être surchargées via un fichier .env (voir .env.example).
+# Trigger CI: test-run-001
 """
 
 import os
