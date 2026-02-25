@@ -18,9 +18,6 @@ from typing import TYPE_CHECKING
 import openpyxl
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
-from openpyxl.chart import BarChart, PieChart, Reference, Series
-from openpyxl.chart.label import DataLabelList
-
 from logger import get_logger
 
 if TYPE_CHECKING:
@@ -256,202 +253,96 @@ def create_analysis_sheet(
     wb: openpyxl.Workbook,
     merged_df: pd.DataFrame,
     companies: list[str],
+    alerts: list[dict] | None = None,
 ) -> None:
     """
-    Crée l'onglet 'Analyse' (Feuille 2) avec un rendu 'Dashboard Premium'.
+    Cree l'onglet 'Analyse' (Feuille 2) avec le listing des erreurs et avertissements.
     """
+    if alerts is None:
+        alerts = []
+
     ws = wb.create_sheet("Analyse", index=1)
     ws.sheet_view.showGridLines = False
-    ws.sheet_properties.tabColor = "1F4E79"
-    
-    # Fond de page
-    for r in range(1, 200):
-        for c in range(1, 40):
-            ws.cell(row=r, column=c).fill = FILL_ANA_BG
-            
-    ws.column_dimensions["A"].width = 4
-    ws.column_dimensions["B"].width = 25
-    ws.column_dimensions["C"].width = 45
-    ws.column_dimensions["D"].width = 18
-    ws.column_dimensions["E"].width = 18
-    ws.column_dimensions["F"].width = 18
-    
-    # 1. HEADER D'ONGLET
-    ws.cell(row=2, column=2, value="📊 TABLEAU DE BORD DÉCISIONNEL").font = FONT_ANA_TITLE
-    ws.cell(row=3, column=2, value="Analyse comparative et outils de négociation stratégique").font = FONT_ANA_SUB
-    
-    # --- CALCULS ---
-    mask_ht = merged_df["Désignation"].str.contains(r"Montant HT", case=False, na=False)
-    df_ht = merged_df[mask_ht]
-    budget_ht = 0.0
-    company_totals = {}
-    if not df_ht.empty:
-        row_ht = df_ht.iloc[0]
-        budget_ht = float(row_ht.get("Px_Tot_HT", 0) or 0)
-        for comp in companies:
-            company_totals[comp] = float(row_ht.get(f"{comp}_Px_Tot_HT", 0) or 0)
+    ws.sheet_properties.tabColor = "C00000"
 
-    # 2. CARRES KPIs (B5-C8, D5-E8, F5-G8)
-    # Espacement : 1 colonne vide entre les cartes
-    kpis = [
-        ("BUDGET ESTIMÉ", budget_ht, 2, "1F4E79"),
-        ("MOINS DISANT", min(company_totals.values()) if company_totals else 0, 5, "27AE60"),
-        ("MOYENNE MARCHÉ", sum(company_totals.values())/len(company_totals) if company_totals else 0, 8, "7F8C8D")
-    ]
-    
-    for label, val, start_col, color in kpis:
-        # Cadre blanc
-        for r in range(5, 10):
-            for i in range(2):
-                cell = ws.cell(row=r, column=start_col + i)
-                cell.fill = FILL_ANA_CARD
-                if r == 5: cell.border = Border(top=Side(style="thick", color=color))
-        
-        ws.cell(row=6, column=start_col, value=label).font = FONT_ANA_KPI_L
-        c_val = ws.cell(row=8, column=start_col, value=val)
-        c_val.font = FONT_ANA_KPI_V
-        c_val.number_format = MONEY_FORMAT
-        
-        if label == "MOINS DISANT" and company_totals:
-            min_c = min(company_totals, key=company_totals.get)
-            ws.cell(row=9, column=start_col, value=f"🏆 {min_c.upper()}").font = FONT_ANA_BOLD
+    FILL_SHEET_BG = PatternFill(start_color="F8F9FA", end_color="F8F9FA", fill_type="solid")
+    FILL_HDR      = PatternFill(start_color="1F4E79", end_color="1F4E79", fill_type="solid")
+    FILL_ROW_ERR  = PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid")
+    FILL_ROW_WARN = PatternFill(start_color="FFE4B5", end_color="FFE4B5", fill_type="solid")
+    FILL_ROW_INFO = PatternFill(start_color="D6EAF8", end_color="D6EAF8", fill_type="solid")
+    FILL_EMPTY    = PatternFill(start_color="F2F2F2", end_color="F2F2F2", fill_type="solid")
 
-    # 3. GRAPHIQUE (B12:G24)
-    # Données graphiques cachées
-    dsr = 150
-    ws.cell(row=dsr, column=30, value="Candidat")
-    ws.cell(row=dsr, column=31, value="HT")
-    ws.cell(row=dsr+1, column=30, value="ESTIMATION")
-    ws.cell(row=dsr+1, column=31, value=budget_ht)
-    curr_r = dsr + 2
-    for comp, tot in company_totals.items():
-        ws.cell(row=curr_r, column=30, value=comp)
-        ws.cell(row=curr_r, column=31, value=tot)
-        curr_r += 1
-        
-    chart = BarChart()
-    chart.title = "COMPARAISON GLOBALE DU LOT"
-    chart.height = 8.5
-    chart.width = 22
-    data = Reference(ws, min_col=31, min_row=dsr, max_row=curr_r-1)
-    cats = Reference(ws, min_col=30, min_row=dsr+1, max_row=curr_r-1)
-    chart.add_data(data, titles_from_data=True)
-    chart.set_categories(cats)
-    
-    # Amélioration de la lisibilité : Étiquettes de données
-    chart.dLbls = DataLabelList()
-    chart.dLbls.showVal = True
-    chart.dLbls.showCatName = True
-    
-    # Légende à droite pour expliquer les barres
-    chart.legend.position = 'r'
-    
-    ws.add_chart(chart, "B12")
-    
-    # 3.1 Légende textuelle additionnelle pour lever toute ambiguïté
-    ws.cell(row=25, column=2, value="💡  LÉGENDE GRAPHISME :").font = FONT_ANA_BOLD
-    ws.cell(row=26, column=2, value="• ESTIMATION : Budget prévu initialement (Référence)").font = FONT_ANA_KPI_L
-    ws.cell(row=26, column=4, value="• ENTREPRISES : Montants totaux des offres reçues").font = FONT_ANA_KPI_L
+    TYPE_FILLS   = {"error": FILL_ROW_ERR, "warning": FILL_ROW_WARN, "info": FILL_ROW_INFO}
+    TYPE_LABELS  = {"error": "ERREUR", "warning": "AVERTISSEMENT", "info": "INFO"}
+    TYPE_FCOLORS = {"error": "C00000",  "warning": "FF6600",        "info": "1F4E79"}
 
-    # --- SECTIONS COLORÉES AVEC TITRES ---
-    
-    # 4. AUDIT (Orange)
-    audit_y = 30
-    # Titre de section
-    for c in range(2, 10):
-        cell = ws.cell(row=audit_y, column=c)
-        cell.fill = FILL_SECTION_AUDIT
-        if c == 2:
-            cell.value = "⚠️  AUDIT DES OMISSIONS (TENSIONS SUR PRIX À 0 €)"
-            cell.font = FONT_ANA_SECTION
-            
-    header_row = audit_y + 2
-    headers = ["CODE", "DESCRIPTION DU POSTE"] + [c.upper() for c in companies]
-    for i, h in enumerate(headers):
-        cell = ws.cell(row=header_row, column=2+i, value=h)
-        cell.font = FONT_ANA_WHITE
-        cell.fill = FILL_ANA_HEADER
-        cell.alignment = Alignment(horizontal="center")
-        
-    curr_row = header_row + 1
-    articles = merged_df[merged_df["row_type"] == "article"]
-    count = 0
-    for _, row in articles.iterrows():
-        omissions = [("MISSING" if float(row.get(f"{c}_Px_Tot_HT", 0) or 0) == 0 else "OK") for c in companies]
-        if "MISSING" in omissions:
-            bg = FILL_ANA_STRIPE if count % 2 == 1 else FILL_ANA_CARD
-            ws.cell(row=curr_row, column=2, value=row["Code"]).fill = bg
-            ws.cell(row=curr_row, column=3, value=row["Désignation"]).fill = bg
-            for i, st in enumerate(omissions):
-                c = ws.cell(row=curr_row, column=4+i, value="Oubli ?" if st == "MISSING" else "✓")
-                c.fill = bg
-                c.alignment = Alignment(horizontal="center")
-                if st == "MISSING": c.font = Font(color="C00000", bold=True)
-            curr_row += 1
-            count += 1
-            if count >= 10: break
+    # --- Dimensions des colonnes ---
+    ws.column_dimensions["A"].width = 6    # N
+    ws.column_dimensions["B"].width = 16   # Severite
+    ws.column_dimensions["C"].width = 16   # Code
+    ws.column_dimensions["D"].width = 28   # Entreprise
+    ws.column_dimensions["E"].width = 75   # Message
 
-    # 5. ÉCARTS (Jaune)
-    gap_y = curr_row + 3
-    for c in range(2, 6):
-        cell = ws.cell(row=gap_y, column=c)
-        cell.fill = FILL_SECTION_GAPS
-        if c == 2:
-            cell.value = "💡  TOP 10 DES ÉCARTS MAJEURS (LEVIERS DE NÉGOCIATION)"
-            cell.font = FONT_ANA_SECTION
-            
-    h_row = gap_y + 2
-    for i, h in enumerate(["CODE", "POSTE STRATÉGIQUE", "ÉCART MAX (€)"]):
-        cell = ws.cell(row=h_row, column=2+i, value=h)
-        cell.font = FONT_ANA_WHITE
-        cell.fill = FILL_ANA_HEADER
-        
-    gaps = []
-    for _, row in articles.iterrows():
-        b = float(row.get("Px_Tot_HT", 0) or 0)
-        if b <= 0: continue
-        diff = max([abs(float(row.get(f"{c}_Px_Tot_HT", 0) or 0) - b) for c in companies])
-        if diff > 0: gaps.append((row["Code"], row["Désignation"], diff))
-        
-    gaps = sorted(gaps, key=lambda x: x[2], reverse=True)[:10]
-    for i, (code, desig, delta) in enumerate(gaps):
-        r = h_row + 1 + i
-        bg = FILL_ANA_STRIPE if i % 2 == 1 else FILL_ANA_CARD
-        ws.cell(row=r, column=2, value=code).fill = bg
-        ws.cell(row=r, column=3, value=desig).fill = bg
-        c_v = ws.cell(row=r, column=4, value=delta)
-        c_v.fill = bg
-        c_v.font = FONT_ANA_BOLD
-        c_v.number_format = MONEY_FORMAT
+    # --- Titre ---
+    title_cell = ws.cell(row=1, column=1, value="LISTING DES ERREURS ET AVERTISSEMENTS")
+    title_cell.font      = Font(name="Tahoma", bold=True, size=14, color="1F4E79")
+    title_cell.alignment = Alignment(horizontal="left", vertical="center")
+    title_cell.fill      = PatternFill(start_color="FFFFFF", end_color="FFFFFF", fill_type="solid")
+    ws.merge_cells("A1:E1")
+    ws.row_dimensions[1].height = 30
 
-    # 6. MATRIX (Vert)
-    mat_y = h_row + 13
-    for c in range(2, 6):
-        cell = ws.cell(row=mat_y, column=c)
-        cell.fill = FILL_SECTION_MATRIX
-        if c == 2:
-            cell.value = "🏆  SYNTHÈSE DU MIEUX-DISANT PAR SECTION"
-            cell.font = FONT_ANA_SECTION
-            
-    m_h = mat_y + 2
-    for i, h in enumerate(["SECTION", "CANDIDAT GAGNANT", "MONTANT (€ HT)"]):
-        cell = ws.cell(row=m_h, column=2+i, value=h)
-        cell.font = FONT_ANA_WHITE
-        cell.fill = FILL_ANA_HEADER
-        
-    r_idx = m_h + 1
-    sections = merged_df[merged_df["row_type"] == "section_header"]
-    for _, s in sections.iterrows():
-        valid = {c: float(s.get(f"{c}_Px_Tot_HT", 0) or 0) for c in companies if float(s.get(f"{c}_Px_Tot_HT", 0) or 0) > 0}
-        if valid:
-            winner = min(valid, key=valid.get)
-            bg = FILL_ANA_STRIPE if (r_idx - m_h) % 2 == 0 else FILL_ANA_CARD
-            ws.cell(row=r_idx, column=2, value=s["Code"]).fill = bg
-            ws.cell(row=r_idx, column=3, value=winner).fill = bg
-            c_v = ws.cell(row=r_idx, column=4, value=valid[winner])
-            c_v.fill = bg
-            c_v.number_format = MONEY_FORMAT
-            r_idx += 1
+    # Ligne de separation
+    for c in range(1, 6):
+        ws.cell(row=2, column=c).fill = FILL_HDR
+    ws.row_dimensions[2].height = 4
+
+    # --- En-tetes du tableau ---
+    headers = ["N", "Severite", "Code", "Entreprise", "Message"]
+    for i, h in enumerate(headers, start=1):
+        cell = ws.cell(row=3, column=i, value=h)
+        cell.font      = Font(name="Tahoma", bold=True, size=10, color="FFFFFF")
+        cell.fill      = FILL_HDR
+        cell.alignment = Alignment(horizontal="center", vertical="center")
+        cell.border    = THIN_BORDER
+    ws.row_dimensions[3].height = 22
+
+    # --- Lignes d'alerte ---
+    if not alerts:
+        cell = ws.cell(row=4, column=1, value="Aucune erreur detectee.")
+        cell.font      = Font(name="Tahoma", italic=True, size=10, color="595959")
+        cell.fill      = FILL_EMPTY
+        cell.alignment = Alignment(horizontal="left", vertical="center", indent=1)
+        ws.merge_cells("A4:E4")
+        ws.row_dimensions[4].height = 24
+    else:
+        for idx, alert in enumerate(alerts, start=1):
+            row_num  = 3 + idx
+            severity = alert.get("type", "info")
+            fill     = TYPE_FILLS.get(severity, FILL_ROW_INFO)
+
+            values = [
+                idx,
+                TYPE_LABELS.get(severity, severity.upper()),
+                alert.get("code", "") or "",
+                alert.get("company", "") or "",
+                alert.get("message", "") or "",
+            ]
+
+            for col_i, val in enumerate(values, start=1):
+                cell           = ws.cell(row=row_num, column=col_i, value=val)
+                cell.fill      = fill
+                cell.border    = THIN_BORDER
+                cell.alignment = Alignment(vertical="top", wrap_text=(col_i == 5))
+                if col_i == 2:
+                    cell.font = Font(name="Tahoma", bold=True, size=9,
+                                     color=TYPE_FCOLORS.get(severity, "000000"))
+                elif col_i == 1:
+                    cell.font = Font(name="Tahoma", bold=True, size=9, color="595959")
+                    cell.alignment = Alignment(horizontal="center", vertical="top")
+                else:
+                    cell.font = Font(name="Tahoma", size=9, color="000000")
+
+            ws.row_dimensions[row_num].height = 28
 
 
 # ---------------------------------------------------------------------------
@@ -850,7 +741,7 @@ def export_tco(
 
     # --- CRÉATION DE L'ONGLET ANALYSE ---
     try:
-        create_analysis_sheet(wb, merged_df, companies)
+        create_analysis_sheet(wb, merged_df, companies, alerts)
     except Exception as e:
         log.error("Erreur création onglet Analyse : %s", e)
 

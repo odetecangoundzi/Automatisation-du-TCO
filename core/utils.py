@@ -2,12 +2,17 @@
 utils.py — Fonctions partagées entre les parsers TCO et DPGF.
 
 Centralise :
-  - _find_header_row  : détecte la ligne d'en-tête Code|Désignation
-  - _classify_row     : classifie chaque ligne selon la colonne Entete (col M)
+  - find_header_row  : détecte la ligne d'en-tête Code|Désignation
+  - find_column_index : recherche de colonne par mots-clés
+  - classify_row     : classifie chaque ligne selon la colonne Entete (col M)
 """
 
 from __future__ import annotations
 import pandas as pd
+
+# Sentinel retourné par find_column_index quand la colonne n'est pas trouvée
+# et qu'aucun default_idx n'est fourni.
+COL_NOT_FOUND = -1
 
 
 def find_header_row(df: pd.DataFrame, max_search: int = 40) -> int:
@@ -19,25 +24,31 @@ def find_header_row(df: pd.DataFrame, max_search: int = 40) -> int:
         row = [str(val).strip().lower() for val in df.iloc[row_idx]]
         if len(row) < 2:
             continue
-            
-        # On cherche 'code' dans les premières colonnes
-        has_code = any("code" == val for val in row[:3])
-        # On cherche 'désignation' ou 'designation' dans les premières colonnes
+
+        has_code  = any("code" == val for val in row[:3])
         has_desig = any("signation" in val or "libellé" in val for val in row[:4])
-        
+
         if has_code and has_desig:
             return row_idx
-            
+
     raise ValueError(
         "Impossible de trouver la ligne d'en-tête (Code | Désignation) "
         f"dans les {max_search} premières lignes."
     )
 
 
-def find_column_index(df: pd.DataFrame, keywords: list[str], default_idx: int) -> int:
+def find_column_index(
+    df: pd.DataFrame,
+    keywords: list[str],
+    default_idx: int | None = None,
+) -> int:
     """
     Cherche l'index d'une colonne par correspondance de mots-clés dans les noms de colonnes.
-    Si non trouvé, retourne l'index par défaut.
+
+    Retourne :
+        - L'index de la première colonne qui correspond à un mot-clé.
+        - default_idx si non trouvé et default_idx est fourni (backward compat).
+        - COL_NOT_FOUND (-1) si non trouvé et default_idx est None.
 
     Règle de matching :
       - mot-clé de 1 caractère → correspondance exacte uniquement (évite que "u" matche "quantité")
@@ -49,6 +60,8 @@ def find_column_index(df: pd.DataFrame, keywords: list[str], default_idx: int) -
             kw_l = kw.lower()
             if kw_l == col or (len(kw_l) > 1 and kw_l in col):
                 return i
+    if default_idx is None:
+        return COL_NOT_FOUND
     return default_idx
 
 
@@ -69,8 +82,8 @@ def classify_row(code_str: str, desig_str: str, entete_str: str, has_price: bool
       - empty          : ligne sans code ni désignation
       - other          : tout le reste non reconnu
     """
-    ent = entete_str
-    code = code_str.lower()
+    ent   = entete_str
+    code  = code_str.lower()
     desig = desig_str.lower()
 
     # 1. Détection via Entete (Priorité haute)
@@ -86,33 +99,33 @@ def classify_row(code_str: str, desig_str: str, entete_str: str, has_price: bool
         return "sub_section"
     if "_Art" in ent:
         return "article"
-    
+
     # 2. Détection via Désignation (Fallback Totaux)
     if "montant ht" in desig or ("tva" in desig and "ht" not in desig) or "montant ttc" in desig:
         return "total_line"
     if "total" in desig and ("section" in desig or "lot" in desig):
         return "recap"
 
-    # 3. Détection via Structure du Code
+    # 3. Priorité prix : une ligne avec Qu et PU renseignés est forcément un article
+    #    (les section_headers n'ont jamais de prix directs — valeurs calculées)
+    if has_price and code_str:
+        return "article"
+
+    # 4. Détection via Structure du Code (fallback sans prix)
     if code.startswith("total"):
         return "total_text"
-    
-    # Heuristique sur le nombre de points dans le code (ex: 01.1 = section, 01.1.1 = sub, 01.1.1.1 = art)
+
     parts = [p for p in code.split(".") if p.strip()]
     if parts:
-        if len(parts) == 2:
+        if len(parts) <= 2:  # "01" ou "01.1" → section principale
             return "section_header"
         if len(parts) == 3:
             return "sub_section"
         if len(parts) >= 4:
             return "article"
 
-    # 4. Fallback Vide
+    # 5. Fallback Vide
     if not code_str and not desig_str:
         return "empty"
-    
-    # 5. Fallback avec prix
-    if has_price and code_str:
-        return "article"
-        
+
     return "other"

@@ -48,7 +48,7 @@ from config import (
     UPLOAD_DIR,
 )
 from core.exporter import export_tco
-from core.merger import merge_company_into_tco
+from core.merger import merge_company_into_tco, merge_all_companies, compute_section_totals
 from core.parser_dpgf import parse_dpgf
 from core.parser_tco import parse_tco
 from logger import get_logger
@@ -144,29 +144,17 @@ def _validate_company_name(name):
 
 
 def rebuild_merged_tco(tva_rate=TVA_DEFAULT):
+    """Reconstruit le TCO fusionné depuis l'état de session.
+    Délègue la logique métier à merge_all_companies (core/merger.py).
+    """
     if st.session_state.tco_df is None:
         return
-    
-    log.info("Reconstruction TCO. TVA=%.2f. Entreprises=%s", 
-             tva_rate, list(st.session_state.company_data.keys()))
-             
-    merged     = st.session_state.tco_df.copy()
-    all_alerts = []
-    
-    for comp_name, comp_data in st.session_state.company_data.items():
-        merged, merge_alerts = merge_company_into_tco(
-            merged, comp_data["dpgf_df"], comp_name, tva_rate=tva_rate
-        )
-        # Tagging alerts with company name for targeted highlighting in exporter
-        for alert in comp_data.get("parse_alerts", []):
-            alert["company"] = comp_name
-        for alert in merge_alerts:
-            alert["company"] = comp_name
-            
-        all_alerts.extend(comp_data.get("parse_alerts", []))
-        all_alerts.extend(merge_alerts)
-        
-    st.session_state.merged_df  = merged
+    merged_df, all_alerts = merge_all_companies(
+        st.session_state.tco_df,
+        st.session_state.company_data,
+        tva_rate=tva_rate,
+    )
+    st.session_state.merged_df  = merged_df
     st.session_state.all_alerts = all_alerts
 
 
@@ -362,8 +350,7 @@ if st.session_state.step >= 1:
                     # SÉCURITÉ : Recaler les totaux de l'estimation (colonne de base)
                     # Cela garantit que même si le fichier source a des erreurs de calcul
                     # ou des sous-totaux manquants, le TCO interne est cohérent.
-                    from core.merger import _compute_section_totals
-                    _compute_section_totals(tco_df, "Px_Tot_HT", tva_rate=st.session_state.tva_rate)
+                    compute_section_totals(tco_df, "Px_Tot_HT", tva_rate=st.session_state.tva_rate)
                     
                     st.session_state.tco_df      = tco_df
                     st.session_state.tco_meta    = meta

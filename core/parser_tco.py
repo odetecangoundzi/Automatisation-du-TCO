@@ -112,7 +112,8 @@ def parse_tco(filepath: str) -> tuple[pd.DataFrame, dict]:
 
         # Re-lecture avec le bon header
         df_data = pd.read_excel(
-            filepath, engine=engine, skiprows=header_row_idx, sheet_name=sheet_name, engine_kwargs=_engine_kwargs
+            filepath, engine=engine, skiprows=header_row_idx, sheet_name=sheet_name,
+            engine_kwargs=_engine_kwargs, dtype=object,  # preserve codes comme strings
         )
         log.debug("En-tête trouvée index %d | projet=%s", header_row_idx, project_info)
     except Exception as e:
@@ -139,7 +140,7 @@ def parse_tco(filepath: str) -> tuple[pd.DataFrame, dict]:
     idx_u      = find_column_index(df_data, ["u", "unité"], 3)
     idx_pu     = find_column_index(df_data, ["px u", "p.u", "prix u"], 4)
     idx_tot    = find_column_index(df_data, ["px tot", "total ht", "prix tot"], 5)
-    idx_entete = find_column_index(df_data, ["entete", "entête"], 12)
+    idx_entete = find_column_index(df_data, ["entete", "entête"])  # None → COL_NOT_FOUND (-1) si absent
 
     for idx_in_df, xl_row in df_data.iterrows():
         row_idx = idx_in_df + header_row_idx + 2 # conversion en 1-indexed Excel row
@@ -153,7 +154,7 @@ def parse_tco(filepath: str) -> tuple[pd.DataFrame, dict]:
         u         = xl_row.iloc[idx_u]
         px_u_raw  = xl_row.iloc[idx_pu]
         px_tot_raw= xl_row.iloc[idx_tot]
-        entete    = xl_row.iloc[idx_entete] if len(xl_row) > idx_entete else None
+        entete    = xl_row.iloc[idx_entete] if (idx_entete >= 0 and len(xl_row) > idx_entete) else None
 
         code_str  = str(code_raw).strip()  if pd.notna(code_raw)  else ""
         desig_str = str(desig_raw).strip() if pd.notna(desig_raw) else ""
@@ -163,7 +164,9 @@ def parse_tco(filepath: str) -> tuple[pd.DataFrame, dict]:
         px_u   = to_decimal(px_u_raw)
         px_tot = to_decimal(px_tot_raw)
 
-        row_type = classify_row(code_str, desig_str, ent_str)
+        # has_price : Qu et PU non nuls indiquent un article (fallback quand Entete absent)
+        has_price_tco = qu > Decimal("0.0") and px_u > Decimal("0.0")
+        row_type = classify_row(code_str, desig_str, ent_str, has_price=has_price_tco)
 
         if row_type == "section_header":
             current_section_code = code_str

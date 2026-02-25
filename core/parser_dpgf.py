@@ -39,6 +39,29 @@ KEYWORDS = {
 # Helpers
 # ---------------------------------------------------------------------------
 
+def _looks_numeric(val: object) -> bool:
+    """Retourne True si la valeur représente un nombre réel (int, float ou str numérique).
+    Utilisé pour detect has_price même quand dtype=object préserve les strings.
+    """
+    if pd.isna(val):
+        return False
+    if isinstance(val, (int, float)):
+        return True
+    s = str(val).strip()
+    if not s:
+        return False
+    # Mots-clés textuels (SANS OBJET, P-M...) ne sont pas des prix
+    s_lower = s.lower()
+    if any(kw in s_lower for kw in KEYWORDS):
+        return False
+    cleaned = s.replace(" ", "").replace(" ", "").replace(",", ".")
+    try:
+        float(cleaned)
+        return True
+    except ValueError:
+        return False
+
+
 def _clean_numeric(value: int | float | str | None) -> tuple[Decimal, str]:
     """
     Nettoie une valeur potentiellement numérique.
@@ -168,7 +191,8 @@ def parse_dpgf(filepath: str) -> tuple[pd.DataFrame, list[dict]]:
 
         # Re-lecture avec le bon header
         df_data = pd.read_excel(
-            filepath, engine=engine, skiprows=header_row_idx, sheet_name=sheet_name, engine_kwargs=_engine_kwargs
+            filepath, engine=engine, skiprows=header_row_idx, sheet_name=sheet_name,
+            engine_kwargs=_engine_kwargs, dtype=object,  # preserve codes comme strings
         )
     except Exception as e:
         log.error("Erreur de structure DPGF: %s", e)
@@ -185,7 +209,7 @@ def parse_dpgf(filepath: str) -> tuple[pd.DataFrame, list[dict]]:
     idx_u      = find_column_index(df_data, ["u", "unité"], 3)
     idx_pu     = find_column_index(df_data, ["px u", "p.u", "prix u"], 4)
     idx_tot    = find_column_index(df_data, ["px tot", "total ht", "prix tot"], 5)
-    idx_entete = find_column_index(df_data, ["entete", "entête"], 12)
+    idx_entete = find_column_index(df_data, ["entete", "entête"])  # None → COL_NOT_FOUND (-1) si absent
 
     for idx_in_df, xl_row in df_data.iterrows():
         row_idx = idx_in_df + header_row_idx + 2  # conversion en 1-indexed Excel row
@@ -199,18 +223,15 @@ def parse_dpgf(filepath: str) -> tuple[pd.DataFrame, list[dict]]:
         u          = xl_row.iloc[idx_u]
         px_u_raw   = xl_row.iloc[idx_pu]
         px_tot_raw = xl_row.iloc[idx_tot]
-        entete     = xl_row.iloc[idx_entete] if len(xl_row) > idx_entete else None
+        entete     = xl_row.iloc[idx_entete] if (idx_entete >= 0 and len(xl_row) > idx_entete) else None
 
         code_str  = str(code_raw).strip()  if pd.notna(code_raw)  else ""
         desig_str = str(desig_raw).strip() if pd.notna(desig_raw) else ""
         ent_str   = str(entete).strip()    if pd.notna(entete)    else ""
 
-        # P10 FIX : has_price = True uniquement si les deux valeurs sont des nombres réels
-        # (évite que "SANS OBJET" ou "P-M" dans ces cellules produise has_price=True)
-        has_price = (
-            isinstance(cc_raw, (int, float)) and not pd.isna(cc_raw)
-            and isinstance(px_u_raw, (int, float)) and not pd.isna(px_u_raw)
-        )
+        # has_price = True si les deux valeurs sont numériques (int, float ou str numérique)
+        # _looks_numeric gère correctement dtype=object (strings) et les mots-clés textuels
+        has_price = _looks_numeric(cc_raw) and _looks_numeric(px_u_raw)
 
         row_type = classify_row(code_str, desig_str, ent_str, has_price=has_price)
 
