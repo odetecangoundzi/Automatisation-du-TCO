@@ -14,6 +14,11 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+# Permissions minimales requises par le cache GHA et le checkout
+permissions:
+  contents: read
+  actions: write
+
 jobs:
   # ─────────────────────────────────────────────────────────────
   # JOB — Build de l'image Docker (validation sans push)
