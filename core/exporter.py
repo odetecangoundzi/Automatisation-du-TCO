@@ -31,13 +31,14 @@ log = get_logger(__name__)
 # Constantes de style
 # ---------------------------------------------------------------------------
 
-FONT_HEADER         = Font(bold=True, size=11, color="FFFFFF")
-FONT_HEADER_COMPANY = Font(bold=True, size=12, color="FFFFFF")
-FONT_SECTION        = Font(bold=True, size=10, color="1F4E79")
-FONT_RECAP          = Font(bold=True, size=10, color="2F5496")
-FONT_TOTAL          = Font(bold=True, size=10)
-FONT_GRAND_TOTAL    = Font(bold=True, size=11, color="FFFFFF")  # Totaux généraux
-FONT_DATA           = Font(size=10)
+FONT_HEADER         = Font(name="Tahoma", bold=True, size=10, color="FFFFFF")
+FONT_HEADER_COMPANY = Font(name="Tahoma", bold=True, size=10, color="FFFFFF")
+FONT_SECTION        = Font(name="Tahoma", bold=True, size=11, color="AC2C18")  # rouge foncé — référence
+FONT_RECAP          = Font(name="Tahoma", bold=True, size=11, color="000000")  # noir gras
+FONT_TOTAL          = Font(name="Tahoma", bold=True, size=11, color="000000")  # noir gras
+FONT_GRAND_TOTAL    = Font(name="Tahoma", bold=True, size=11, color="FFFFFF")  # blanc sur fond foncé
+FONT_DATA           = Font(name="Tahoma", size=9,   color="000000")
+FONT_SUB_SECTION    = Font(name="Tahoma", bold=True, size=9,  color="314E85")  # bleu foncé — référence
 
 FILL_HEADER = PatternFill(start_color="2F5496", end_color="2F5496", fill_type="solid")
 FILL_COMPANY_COLORS = [
@@ -48,15 +49,17 @@ FILL_COMPANY_COLORS = [
     PatternFill(start_color="C00000", end_color="C00000", fill_type="solid"),
 ]
 
-FILL_SECTION       = PatternFill(start_color="DCE6F1", end_color="DCE6F1", fill_type="solid")
-FILL_RECAP         = PatternFill(start_color="E8E8E8", end_color="E8E8E8", fill_type="solid")  # gris clair
-FILL_RECAP_SUMMARY = PatternFill(start_color="BDBDBD", end_color="BDBDBD", fill_type="solid")  # gris moyen
-FILL_TOTAL_LINE    = PatternFill(start_color="E2EFDA", end_color="E2EFDA", fill_type="solid")  # fallback
-FILL_SUB_SECTION   = PatternFill(start_color="EDF2F9", end_color="EDF2F9", fill_type="solid")
+# Lignes de données : fond blanc pur (conforme référence — hiérarchie via couleur police)
+FILL_WHITE         = PatternFill(start_color="FFFFFF", end_color="FFFFFF", fill_type="solid")
+FILL_SECTION       = FILL_WHITE
+FILL_RECAP         = FILL_WHITE
+FILL_RECAP_SUMMARY = FILL_WHITE
+FILL_TOTAL_LINE    = FILL_WHITE
+FILL_SUB_SECTION   = FILL_WHITE
 
-# Titres principaux (sub_section sans prix = titre de chapitre ex : BATIMENT F, INSTALLATIONS CHANTIER)
-FONT_MAIN_TITLE = Font(bold=True, size=11, color="1F4E79")
-FILL_MAIN_TITLE = PatternFill(start_color="C5D9F1", end_color="C5D9F1", fill_type="solid")  # bleu-gris moyen
+# Titres principaux (sub_section sans prix = ex : BATIMENT F)
+FONT_MAIN_TITLE = Font(name="Tahoma", bold=True, size=11, color="314E85")  # bleu foncé ref
+FILL_MAIN_TITLE = FILL_WHITE
 
 # Totaux généraux — fond sombre + texte blanc (FONT_GRAND_TOTAL)
 FILL_MONTANT_HT  = PatternFill(start_color="1F4E79", end_color="1F4E79", fill_type="solid")  # bleu foncé
@@ -72,14 +75,11 @@ THIN_BORDER = Border(
     left=Side(style="thin"), right=Side(style="thin"),
     top=Side(style="thin"),  bottom=Side(style="thin"),
 )
-THICK_TOP_BORDER = Border(
-    left=Side(style="thin"),  right=Side(style="thin"),
-    top=Side(style="medium"), bottom=Side(style="thin"),
-)
+THICK_TOP_BORDER = THIN_BORDER  # référence : uniquement thin, pas de medium
 
-# Formats numériques
-MONEY_FORMAT = '#,##0.00 €'
-QTY_FORMAT   = '#,##0.000'
+# Formats numériques — format exact de la référence
+MONEY_FORMAT = r'###,###,###,##0.00\ \€;\-###,###,###,##0.00\ \€;'
+QTY_FORMAT   = r'###,###,###,##0.00;\-###,###,###,##0.00;'
 
 
 # ---------------------------------------------------------------------------
@@ -119,11 +119,11 @@ def _get_alert_fill(color: str) -> PatternFill | None:
 
 def _get_row_style(row_type: str) -> tuple[Font, PatternFill | None]:
     return {
-        "section_header": (FONT_SECTION, FILL_SECTION),
-        "recap":          (FONT_RECAP,   FILL_RECAP),
-        "recap_summary":  (FONT_RECAP,   FILL_RECAP_SUMMARY),
-        "total_line":     (FONT_TOTAL,   FILL_TOTAL_LINE),
-        "sub_section":    (FONT_DATA,    FILL_SUB_SECTION),
+        "section_header": (FONT_SECTION,     FILL_SECTION),
+        "recap":          (FONT_RECAP,        FILL_RECAP),
+        "recap_summary":  (FONT_RECAP,        FILL_RECAP_SUMMARY),
+        "total_line":     (FONT_TOTAL,        FILL_TOTAL_LINE),
+        "sub_section":    (FONT_SUB_SECTION,  FILL_SUB_SECTION),
     }.get(row_type, (FONT_DATA, None))
 
 
@@ -480,6 +480,9 @@ def export_tco(
                             ws.cell(row=excel_row, column=c).fill = first_alert_fill
                         comp_col += 4
 
+        # Hauteur ligne de données : 28.5 pt (conforme référence)
+        ws.row_dimensions[excel_row].height = 28.5
+
         excel_row += 1
 
     # PARTIE 3 : Injection différée des formules pour section_header
@@ -505,8 +508,23 @@ def export_tco(
                         value=_rows_to_sum_formula(tc, art_rows))
             c_off += 4
 
-    _auto_width(ws)
-    ws.column_dimensions["B"].width = 55  # Force Désignation width
+    # Largeurs de colonnes — valeurs exactes de la référence
+    ws.column_dimensions["A"].width = 9.5
+    ws.column_dimensions["B"].width = 56.75
+    ws.column_dimensions["C"].width = 9.5
+    ws.column_dimensions["D"].width = 7.125
+    ws.column_dimensions["E"].width = 14.125
+    ws.column_dimensions["F"].width = 16.5
+    for _ci in range(len(companies)):
+        _cb = 7 + _ci * 4
+        ws.column_dimensions[get_column_letter(_cb)].width     = 9.5    # Qu.
+        ws.column_dimensions[get_column_letter(_cb + 1)].width = 14.125 # Px U HT
+        ws.column_dimensions[get_column_letter(_cb + 2)].width = 16.5   # Px Tot HT
+        ws.column_dimensions[get_column_letter(_cb + 3)].width = 25.0   # Commentaire
+
+    # Hauteurs en-têtes : 14.25 pt (conforme référence)
+    ws.row_dimensions[1].height = 14.25
+    ws.row_dimensions[2].height = 14.25
 
     # Figer lignes 1+2 (en-têtes) ET colonnes A (Code) + B (Désignation)
     # Règle OpenPyXL : ancre "C3" → lignes < 3 figées + colonnes < C figées
