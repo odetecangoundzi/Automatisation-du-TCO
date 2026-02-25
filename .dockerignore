@@ -1,0 +1,62 @@
+# Contrôle de version
+.git
+.gitignore
+.github
+
+# Tests et outils de développement
+tests/
+.pytest_cache/
+coverage.xml
+htmlcov/
+pyproject.toml
+
+# Cache Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+dist/
+build/
+
+# Environnements virtuels
+.venv/
+venv/
+env/
+
+# Données locales (non committées en prod)
+uploads/
+projects/
+outputs/
+logs/
+*.log
+
+# Fichiers sensibles
+.env
+.env.local
+
+# Fichiers IDE et OS
+.windsurf/
+.vscode/
+*.DS_Store
+Thumbs.db
+
+# Fichiers de diagnostic et debug
+debug_*.py
+debug_*.txt
+diag_*.py
+test_*.py
+check_*.py
+compare_*.py
+verify_*.py
+structure_analysis.txt
+tco_final_detail.txt
+
+# Données Excel de test (grands fichiers)
+*.xlsx
+*.xls
+*.xlsm
+*.xlsb
+*.png
+*.pdf
+*.rar

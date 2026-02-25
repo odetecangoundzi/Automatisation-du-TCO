@@ -35,6 +35,7 @@ import streamlit as st
 
 from app import get_full_css
 from config import (
+    ADMIN_MODE,
     APP_ICON,
     APP_TITLE,
     APP_VERSION,
@@ -234,10 +235,11 @@ if st.session_state.step > 0:
 
         st.markdown("---")
 
-        # Fermer l'application
-        if st.button("❌ Fermer l'application", use_container_width=True, help="Arrête le serveur Streamlit"):
-            st.warning("Arrêt de l'application...")
-            os.kill(os.getpid(), signal.SIGTERM)
+        # Fermer l'application — réservé à l'administrateur
+        if ADMIN_MODE:
+            if st.button("❌ Fermer l'application", use_container_width=True, help="Arrête le serveur Streamlit (admin uniquement)"):
+                st.warning("Arrêt de l'application...")
+                os.kill(os.getpid(), signal.SIGTERM)
 
 is_dark = st.session_state.dark_mode
 

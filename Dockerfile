@@ -23,6 +23,10 @@ COPY . .
 
 EXPOSE 8501
 
+# Utilisateur non-root pour réduire la surface d'attaque en production
+RUN useradd -m -u 1000 tco && chown -R tco:tco /app
+USER tco
+
 HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
     CMD curl --fail --silent http://localhost:8501/_stcore/health || exit 1
 

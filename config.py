@@ -72,3 +72,7 @@ LOG_LEVEL          = "INFO"             # DEBUG | INFO | WARNING | ERROR
 APP_TITLE   = "TCO Automator"
 APP_VERSION = "2.1.0"
 APP_ICON    = "📊"
+
+# Mode administrateur — active les commandes sensibles (arrêt serveur, etc.)
+# Activer via variable d'environnement : TCO_ADMIN_MODE=true
+ADMIN_MODE = os.getenv("TCO_ADMIN_MODE", "false").strip().lower() == "true"
