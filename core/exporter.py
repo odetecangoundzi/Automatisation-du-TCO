@@ -760,22 +760,29 @@ def export_tco(
                     break
                 if alert["type"] == "warning":
                     max_severity = "warning"
-            # Appliquer le fill : ligne entière pour erreur, colonnes entreprise pour warning/info
-            first_alert_fill = _get_alert_fill(
-                alert_by_code[code][0]["color"]
-            )
-            if first_alert_fill:
-                if max_severity == "error":
-                    # Mise en rouge de toute la ligne (Point 7)
-                    for c in range(1, max_col + 1):
-                        ws.cell(row=excel_row, column=c).fill = FILL_ERROR
-                else:
-                    # Warning/info : uniquement colonnes entreprise
-                    comp_col = 7
-                    for _ in companies:
-                        for c in range(comp_col, comp_col + 4):
-                            ws.cell(row=excel_row, column=c).fill = first_alert_fill
-                        comp_col += 4
+            
+            if max_severity == "error":
+                # Mise en rouge de toute la ligne (Critique)
+                for c in range(1, max_col + 1):
+                    ws.cell(row=excel_row, column=c).fill = FILL_ERROR
+            else:
+                # Warning/info : uniquement cellule Commentaire de l'entreprise concernée
+                for alert in alert_by_code[code]:
+                    fill = _get_alert_fill(alert["color"])
+                    if not fill: continue
+                    
+                    target_comp = alert.get("company")
+                    if target_comp and target_comp in companies:
+                        comp_idx = companies.index(target_comp)
+                        # target_col = 7 (début entreprises) + comp_idx*4 + 3 (indice comm)
+                        target_col = 7 + comp_idx * 4 + 3
+                        ws.cell(row=excel_row, column=target_col).fill = fill
+                    else:
+                        # Fallback si pas de compagnie : toutes les colonnes commentaire
+                        c_off = 7
+                        for _ in companies:
+                            ws.cell(row=excel_row, column=c_off + 3).fill = fill
+                            c_off += 4
 
         # Hauteur ligne de données : 28.5 pt (conforme référence)
         ws.row_dimensions[excel_row].height = 28.5

@@ -157,7 +157,13 @@ def rebuild_merged_tco(tva_rate=TVA_DEFAULT):
         merged, merge_alerts = merge_company_into_tco(
             merged, comp_data["dpgf_df"], comp_name, tva_rate=tva_rate
         )
-        all_alerts.extend(comp_data["parse_alerts"])
+        # Tagging alerts with company name for targeted highlighting in exporter
+        for alert in comp_data.get("parse_alerts", []):
+            alert["company"] = comp_name
+        for alert in merge_alerts:
+            alert["company"] = comp_name
+            
+        all_alerts.extend(comp_data.get("parse_alerts", []))
         all_alerts.extend(merge_alerts)
         
     st.session_state.merged_df  = merged
