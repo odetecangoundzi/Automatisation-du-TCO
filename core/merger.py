@@ -122,12 +122,13 @@ def merge_company_into_tco(
                 if "." in tco_first_code:
                     tco_lot_prefix = tco_first_code.split(".")[0]
                     if dpgf_lot_prefix != tco_lot_prefix:
-                        msg = f"Discordance de LOT détectée : DPGF={dpgf_lot_prefix} vs Modèle={tco_lot_prefix}"
-                        log.error(msg)
+                        msg = "le DPGF entreprise ne correspond pas au Template"
+                        log.error("%s (Lot mismatch: DPGF=%s vs TCO=%s)", msg, dpgf_lot_prefix, tco_lot_prefix)
                         alerts.append({
                             "type": "error", "color": "red", "row": 0, "code": "", "message": msg
                         })
-                        # On continue quand même la fusion pour montrer ce qui match (souvent rien)
+                        # STOP-MERGE : on retourne le TCO original (non modifié) pour cette entreprise
+                        return tco_df, alerts
 
     # PERF-1 : index TCO codes → O(1) lookup
     tco_code_index: dict[str, int] = {}
@@ -269,15 +270,14 @@ def merge_company_into_tco(
         match_rate = matched_count / total_dpgf * 100
         unmatched  = total_dpgf - matched_count
         if match_rate < 50:
-            msg = (
-                f"Correspondance DPGF/Template critique : {match_rate:.0f}% "
-                f"— {unmatched} codes non trouvés sur {total_dpgf}"
-            )
-            log.error(msg)
+            msg = "le DPGF entreprise ne correspond pas au Template"
+            log.error("%s (Match rate critique: %.1f%%)", msg, match_rate)
             alerts.insert(0, {
                 "type": "error", "color": "red", "row": 0, "code": "",
                 "message": msg,
             })
+            # STOP-MERGE : trop peu de correspondances pour être fiable
+            return tco_df, alerts
         elif match_rate < 90:
             msg = (
                 f"Correspondance DPGF/Template partielle : {match_rate:.0f}% "

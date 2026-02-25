@@ -352,6 +352,13 @@ if st.session_state.step >= 1:
             with st.spinner("🔄 Lecture du TCO..."):
                 try:
                     tco_df, meta = parse_tco(path)
+                    
+                    # SÉCURITÉ : Recaler les totaux de l'estimation (colonne de base)
+                    # Cela garantit que même si le fichier source a des erreurs de calcul
+                    # ou des sous-totaux manquants, le TCO interne est cohérent.
+                    from core.merger import _compute_section_totals
+                    _compute_section_totals(tco_df, "Px_Tot_HT", tva_rate=st.session_state.tva_rate)
+                    
                     st.session_state.tco_df      = tco_df
                     st.session_state.tco_meta    = meta
                     st.session_state.merged_df   = tco_df.copy()

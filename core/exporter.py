@@ -18,6 +18,8 @@ from typing import TYPE_CHECKING
 import openpyxl
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
+from openpyxl.chart import BarChart, PieChart, Reference, Series
+from openpyxl.chart.label import DataLabelList
 
 from logger import get_logger
 
@@ -222,6 +224,192 @@ def _rows_to_sum_formula(col: str, rows: list[int]) -> str:
             start = end = r
     parts.append(f"{col}{start}:{col}{end}" if start != end else f"{col}{start}")
     return "=SUM(" + ",".join(parts) + ")"
+
+
+def create_analysis_sheet(
+    wb: openpyxl.Workbook,
+    merged_df: pd.DataFrame,
+    companies: list[str],
+) -> None:
+    """
+    Crée l'onglet 'Analyse' (Feuille 2) avec KPIs, graphiques et audit.
+    """
+    ws = wb.create_sheet("Analyse", index=1)
+    
+    # Styles spécifiques à l'analyse
+    font_title = Font(name="Tahoma", bold=True, size=14, color="2F5496")
+    font_kpi_label = Font(name="Tahoma", size=10, color="595959")
+    font_kpi_val = Font(name="Tahoma", bold=True, size=12, color="000000")
+    fill_kpi = PatternFill(start_color="F2F2F2", end_color="F2F2F2", fill_type="solid")
+    
+    ws.column_dimensions["A"].width = 2
+    ws.column_dimensions["B"].width = 30
+    ws.column_dimensions["C"].width = 15
+    ws.column_dimensions["D"].width = 15
+    ws.column_dimensions["E"].width = 15
+    ws.column_dimensions["F"].width = 15
+    
+    ws.cell(row=2, column=2, value="ANALYSE & AIDE À LA DÉCISION").font = font_title
+    
+    # 1. Calcul des montants totaux (HT) pour les KPIs
+    # On cherche les lignes 'Montant HT'
+    mask_ht = merged_df["Désignation"].str.contains(r"Montant HT", case=False, na=False)
+    df_ht = merged_df[mask_ht]
+    
+    budget_ht = 0.0
+    company_totals = {}
+    if not df_ht.empty:
+        row_ht = df_ht.iloc[0]
+        budget_ht = float(row_ht.get("Px_Tot_HT", 0) or 0)
+        for comp in companies:
+            val = row_ht.get(f"{comp}_Px_Tot_HT", 0)
+            company_totals[comp] = float(val or 0)
+            
+    # 2. Bandeau KPIs
+    ws.cell(row=4, column=2, value="Budget Estimé (HT)").font = font_kpi_label
+    ws.cell(row=5, column=2, value=budget_ht).font = font_kpi_val
+    ws.cell(row=5, column=2).number_format = MONEY_FORMAT
+    
+    if company_totals:
+        min_comp = min(company_totals, key=company_totals.get)
+        min_val = company_totals[min_comp]
+        ws.cell(row=4, column=3, value="Offre la plus Basse").font = font_kpi_label
+        ws.cell(row=5, column=3, value=f"{min_comp}").font = font_kpi_val
+        ws.cell(row=6, column=3, value=min_val).font = font_kpi_val
+        ws.cell(row=6, column=3).number_format = MONEY_FORMAT
+        
+        avg_val = sum(company_totals.values()) / len(company_totals)
+        ws.cell(row=4, column=4, value="Moyenne Marché").font = font_kpi_label
+        ws.cell(row=5, column=4, value=avg_val).font = font_kpi_val
+        ws.cell(row=5, column=4).number_format = MONEY_FORMAT
+        
+    for r in range(4, 7):
+        for c in range(2, 6):
+            ws.cell(row=r, column=c).fill = fill_kpi
+
+    # 3. Graphique Comparatif
+    # On crée une petite table de données pour le graphique (cachée ou loin à droite)
+    data_start_row = 50
+    ws.cell(row=data_start_row, column=10, value="Candidat")
+    ws.cell(row=data_start_row, column=11, value="Montant HT")
+    ws.cell(row=data_start_row+1, column=10, value="Estimation")
+    ws.cell(row=data_start_row+1, column=11, value=budget_ht)
+    
+    curr_r = data_start_row + 2
+    for comp, tot in company_totals.items():
+        ws.cell(row=curr_r, column=10, value=comp)
+        ws.cell(row=curr_r, column=11, value=tot)
+        curr_r += 1
+        
+    chart = BarChart()
+    chart.type = "col"
+    chart.style = 10
+    chart.title = "Comparaison des Offres (HT)"
+    chart.y_axis.title = "Euros (€)"
+    chart.x_axis.title = "Candidats"
+    
+    data = Reference(ws, min_col=11, min_row=data_start_row, max_row=curr_r-1)
+    cats = Reference(ws, min_col=10, min_row=data_start_row+1, max_row=curr_r-1)
+    chart.add_data(data, titles_from_data=True)
+    chart.set_categories(cats)
+    chart.legend = None
+    ws.add_chart(chart, "B8")
+
+    # 4. Audit des Omissions (Prix à 0)
+    ws.cell(row=25, column=2, value="AUDIT DES OMISSIONS (Articles à 0 €)").font = Font(bold=True)
+    ws.cell(row=26, column=2, value="Code").font = font_kpi_label
+    ws.cell(row=26, column=3, value="Désignation").font = font_kpi_label
+    
+    col_omissions = 4
+    for comp in companies:
+        ws.cell(row=26, column=col_omissions, value=comp).font = font_kpi_label
+        col_omissions += 1
+        
+    omission_row = 27
+    count_limit = 0
+    for _, row in merged_df[merged_df["row_type"] == "article"].iterrows():
+        # On ne liste que s'il y a au moins une omission
+        omissions = []
+        for comp in companies:
+            val = float(row.get(f"{comp}_Px_Tot_HT", 0) or 0)
+            if val == 0:
+                omissions.append("Oubli ?")
+            else:
+                omissions.append("-")
+        
+        if "Oubli ?" in omissions:
+            ws.cell(row=omission_row, column=2, value=row["Code"])
+            ws.cell(row=omission_row, column=3, value=row["Désignation"])
+            for i, status in enumerate(omissions):
+                cell = ws.cell(row=omission_row, column=4+i, value=status)
+                if status == "Oubli ?":
+                    cell.font = Font(color="C00000")
+            omission_row += 1
+            count_limit += 1
+            if count_limit > 20: # Limite pour ne pas exploser la feuille
+                ws.cell(row=omission_row, column=2, value="... (trop d'omissions pour tout lister)")
+                break
+
+    # 5. Top 10 des Écarts Majeurs (Budget vs Offre)
+    ws.cell(row=45, column=2, value="TOP 10 DES ÉCARTS MAJEURS (vs Budget)").font = Font(bold=True)
+    ws.cell(row=46, column=2, value="Code").font = font_kpi_label
+    ws.cell(row=46, column=3, value="Désignation").font = font_kpi_label
+    ws.cell(row=46, column=4, value="Ecart Max (€)").font = font_kpi_label
+    
+    gaps = []
+    for _, row in merged_df[merged_df["row_type"] == "article"].iterrows():
+        budget = float(row.get("Px_Tot_HT", 0) or 0)
+        if budget == 0: continue
+        
+        max_delta = 0.0
+        for comp in companies:
+            val = float(row.get(f"{comp}_Px_Tot_HT", 0) or 0)
+            if val > 0:
+                delta = abs(val - budget)
+                if delta > max_delta:
+                    max_delta = delta
+        
+        if max_delta > 0:
+            gaps.append({
+                "Code": row["Code"],
+                "Désignation": row["Désignation"],
+                "Delta": max_delta
+            })
+            
+    # Sort and take top 10
+    gaps = sorted(gaps, key=lambda x: x["Delta"], reverse=True)[:10]
+    
+    gap_row = 47
+    for g in gaps:
+        ws.cell(row=gap_row, column=2, value=g["Code"])
+        ws.cell(row=gap_row, column=3, value=g["Désignation"])
+        ws.cell(row=gap_row, column=4, value=g["Delta"]).number_format = MONEY_FORMAT
+        gap_row += 1
+
+    # 6. Matrice du Mieux-Disant par Section
+    ws.cell(row=65, column=2, value="RÉCAPITULATIF DU MIEUX-DISANT PAR SECTION").font = Font(bold=True)
+    ws.cell(row=66, column=2, value="Section").font = font_kpi_label
+    ws.cell(row=66, column=3, value="Vainqueur").font = font_kpi_label
+    ws.cell(row=66, column=4, value="Montant").font = font_kpi_label
+    
+    matrix_row = 67
+    mask_sections = merged_df["row_type"] == "section_header"
+    for _, s_row in merged_df[mask_sections].iterrows():
+        s_code = s_row["Code"]
+        if not s_code: continue
+        
+        s_totals = {}
+        for comp in companies:
+            val = float(s_row.get(f"{comp}_Px_Tot_HT", 0) or 0)
+            if val > 0:
+                s_totals[comp] = val
+        
+        if s_totals:
+            best_c = min(s_totals, key=s_totals.get)
+            ws.cell(row=matrix_row, column=2, value=s_code)
+            ws.cell(row=matrix_row, column=3, value=best_c)
+            ws.cell(row=matrix_row, column=4, value=s_totals[best_c]).number_format = MONEY_FORMAT
+            matrix_row += 1
 
 
 # ---------------------------------------------------------------------------
@@ -610,6 +798,12 @@ def export_tco(
     fix_freeze_panes(ws)                              # C3 : lignes 1-2 + cols A-B
     fix_merged_cells_crossing_freeze(ws)              # retire fusions qui traversent C3
     prevent_text_overflow(ws, min_row=3, max_col=max_col)  # fill blanc sur cellules vides
+
+    # --- CRÉATION DE L'ONGLET ANALYSE ---
+    try:
+        create_analysis_sheet(wb, merged_df, companies)
+    except Exception as e:
+        log.error("Erreur création onglet Analyse : %s", e)
 
     log.info("Workbook prêt. Output_path=%s", output_path)
 
