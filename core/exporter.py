@@ -337,8 +337,21 @@ def create_analysis_sheet(
     cats = Reference(ws, min_col=30, min_row=dsr+1, max_row=curr_r-1)
     chart.add_data(data, titles_from_data=True)
     chart.set_categories(cats)
-    chart.legend = None
+    
+    # Amélioration de la lisibilité : Étiquettes de données
+    chart.dLbls = DataLabelList()
+    chart.dLbls.showVal = True
+    chart.dLbls.showCatName = True
+    
+    # Légende à droite pour expliquer les barres
+    chart.legend.position = 'r'
+    
     ws.add_chart(chart, "B12")
+    
+    # 3.1 Légende textuelle additionnelle pour lever toute ambiguïté
+    ws.cell(row=25, column=2, value="💡  LÉGENDE GRAPHISME :").font = FONT_ANA_BOLD
+    ws.cell(row=26, column=2, value="• ESTIMATION : Budget prévu initialement (Référence)").font = FONT_ANA_KPI_L
+    ws.cell(row=26, column=4, value="• ENTREPRISES : Montants totaux des offres reçues").font = FONT_ANA_KPI_L
 
     # --- SECTIONS COLORÉES AVEC TITRES ---
     
