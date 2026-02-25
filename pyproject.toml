@@ -19,6 +19,34 @@ dev = [
 [tool.ruff]
 line-length = 100
 target-version = "py310"
+# Exclure les scripts de debug/diagnostic/test ad-hoc à la racine
+# (non maintenus, hors périmètre de lint CI)
+exclude = [
+    "check_lot.py",
+    "compare_templates.py",
+    "debug_pytest.py",
+    "debug_sub.py",
+    "diag_cas12.py",
+    "diag_entreprise.py",
+    "test_all_merges.py",
+    "test_discrepancy.py",
+    "test_discrepancy_lot06.py",
+    "test_dpgf_06.py",
+    "test_e2e.py",
+    "test_merge.py",
+    "test_merge2.py",
+    "test_merge3.py",
+    "test_merge4.py",
+    "test_minimal.py",
+    "test_robustness.py",
+    "test_tva.py",
+    "test_tva_simple.py",
+    "verify_fixes.py",
+    "core/test_exporter.py",
+    "tools",
+    ".venv",
+    "venv",
+]
 
 [tool.ruff.lint]
 select = [
@@ -36,6 +64,11 @@ ignore = [
     "S603",  # subprocess
     "S607",  # starting with partial path
 ]
+
+[tool.ruff.lint.per-file-ignores]
+# Les tests pytest utilisent assert par conception — S101 non applicable
+# S110 : try-except dans fixtures accepté
+"tests/**" = ["S101", "S110", "F841"]
 
 [tool.ruff.format]
 quote-style = "double"

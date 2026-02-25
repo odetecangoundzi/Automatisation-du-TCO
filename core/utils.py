@@ -8,6 +8,7 @@ Centralise :
 """
 
 from __future__ import annotations
+
 import pandas as pd
 
 # Sentinel retourné par find_column_index quand la colonne n'est pas trouvée
@@ -25,7 +26,7 @@ def find_header_row(df: pd.DataFrame, max_search: int = 40) -> int:
         if len(row) < 2:
             continue
 
-        has_code  = any("code" == val for val in row[:3])
+        has_code = any("code" == val for val in row[:3])
         has_desig = any("signation" in val or "libellé" in val for val in row[:4])
 
         if has_code and has_desig:
@@ -82,8 +83,8 @@ def classify_row(code_str: str, desig_str: str, entete_str: str, has_price: bool
       - empty          : ligne sans code ni désignation
       - other          : tout le reste non reconnu
     """
-    ent   = entete_str
-    code  = code_str.lower()
+    ent = entete_str
+    code = code_str.lower()
     desig = desig_str.lower()
 
     # 1. Détection via Entete (Priorité haute)

@@ -5,7 +5,7 @@ Vérifie : extension, taille, magic bytes (ZIP/XLSX), structure interne.
 """
 
 import os
-import openpyxl
+
 from logger import get_logger
 
 log = get_logger(__name__)
@@ -50,12 +50,12 @@ def validate_magic_bytes(uploaded_file) -> tuple[bool, str]:
 
     if len(header) < 4:
         return False, "Fichier trop petit ou vide."
-    
+
     if header == ZIP_MAGIC:
         return True, ""
     if header == XLS_MAGIC:
         return True, ""
-        
+
     return False, "Le contenu du fichier ne correspond pas à un fichier Excel valide."
 
 
@@ -70,19 +70,23 @@ def validate_excel_structure(uploaded_file) -> tuple[bool, str]:
         (is_valid, error_message)
     """
     import pandas as pd
+
     try:
         uploaded_file.seek(0)
         ext = os.path.splitext(uploaded_file.name)[1].lower()
-        
+
         # Détermination de l'engine
         engine = None
-        if ext == ".xls": engine = "xlrd"
-        elif ext == ".xlsb": engine = "pyxlsb"
-        elif ext in [".xlsx", ".xlsm"]: engine = "openpyxl"
-        
+        if ext == ".xls":
+            engine = "xlrd"
+        elif ext == ".xlsb":
+            engine = "pyxlsb"
+        elif ext in [".xlsx", ".xlsm"]:
+            engine = "openpyxl"
+
         # Test de lecture rapide (juste les headers ou une petite partie)
         pd.read_excel(uploaded_file, engine=engine, nrows=1)
-        
+
         uploaded_file.seek(0)
         return True, ""
     except Exception as e:
@@ -137,4 +141,3 @@ def validate_uploaded_file(
             return False, err
 
     return True, ""
-

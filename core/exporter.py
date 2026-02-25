@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING
 import openpyxl
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
+
 from logger import get_logger
 
 if TYPE_CHECKING:
@@ -30,14 +31,14 @@ log = get_logger(__name__)
 # Constantes de style
 # ---------------------------------------------------------------------------
 
-FONT_HEADER         = Font(name="Tahoma", bold=True, size=10, color="FFFFFF")
+FONT_HEADER = Font(name="Tahoma", bold=True, size=10, color="FFFFFF")
 FONT_HEADER_COMPANY = Font(name="Tahoma", bold=True, size=10, color="FFFFFF")
-FONT_SECTION        = Font(name="Tahoma", bold=True, size=11, color="AC2C18")  # rouge foncé — référence
-FONT_RECAP          = Font(name="Tahoma", bold=True, size=11, color="000000")  # noir gras
-FONT_TOTAL          = Font(name="Tahoma", bold=True, size=11, color="000000")  # noir gras
-FONT_GRAND_TOTAL    = Font(name="Tahoma", bold=True, size=11, color="FFFFFF")  # blanc sur fond foncé
-FONT_DATA           = Font(name="Tahoma", size=9,   color="000000")
-FONT_SUB_SECTION    = Font(name="Tahoma", bold=True, size=9,  color="314E85")  # bleu foncé — référence
+FONT_SECTION = Font(name="Tahoma", bold=True, size=11, color="AC2C18")  # rouge foncé — référence
+FONT_RECAP = Font(name="Tahoma", bold=True, size=11, color="000000")  # noir gras
+FONT_TOTAL = Font(name="Tahoma", bold=True, size=11, color="000000")  # noir gras
+FONT_GRAND_TOTAL = Font(name="Tahoma", bold=True, size=11, color="FFFFFF")  # blanc sur fond foncé
+FONT_DATA = Font(name="Tahoma", size=9, color="000000")
+FONT_SUB_SECTION = Font(name="Tahoma", bold=True, size=9, color="314E85")  # bleu foncé — référence
 
 FILL_HEADER = PatternFill(start_color="2F5496", end_color="2F5496", fill_type="solid")
 FILL_COMPANY_COLORS = [
@@ -51,66 +52,79 @@ FILL_COMPANY_COLORS = [
 # Lignes de données : fond blanc pur (conforme référence — hiérarchie via couleur police)
 # Format ARGB 8 chars : "FFFFFFFF" = blanc opaque — correspond à fgColor.rgb de la référence
 FILL_WHITE = PatternFill(start_color="FFFFFF", end_color="FFFFFF", fill_type="solid")
-FILL_SECTION       = FILL_WHITE
-FILL_RECAP         = FILL_WHITE
+FILL_SECTION = FILL_WHITE
+FILL_RECAP = FILL_WHITE
 FILL_RECAP_SUMMARY = FILL_WHITE
-FILL_TOTAL_LINE    = FILL_WHITE
-FILL_SUB_SECTION   = FILL_WHITE
+FILL_TOTAL_LINE = FILL_WHITE
+FILL_SUB_SECTION = FILL_WHITE
 
 # Titres principaux (sub_section sans prix = ex : BATIMENT F)
 FONT_MAIN_TITLE = Font(name="Tahoma", bold=True, size=11, color="314E85")  # bleu foncé ref
 FILL_MAIN_TITLE = FILL_WHITE
 
 # Totaux généraux — fond sombre + texte blanc (FONT_GRAND_TOTAL)
-FILL_MONTANT_HT  = PatternFill(start_color="1F4E79", end_color="1F4E79", fill_type="solid")  # bleu foncé
-FILL_TVA         = PatternFill(start_color="2E75B6", end_color="2E75B6", fill_type="solid")  # bleu moyen
-FILL_MONTANT_TTC = PatternFill(start_color="0D2137", end_color="0D2137", fill_type="solid")  # bleu très foncé
+FILL_MONTANT_HT = PatternFill(
+    start_color="1F4E79", end_color="1F4E79", fill_type="solid"
+)  # bleu foncé
+FILL_TVA = PatternFill(start_color="2E75B6", end_color="2E75B6", fill_type="solid")  # bleu moyen
+FILL_MONTANT_TTC = PatternFill(
+    start_color="0D2137", end_color="0D2137", fill_type="solid"
+)  # bleu très foncé
 
-FILL_ERROR   = PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid")
+FILL_ERROR = PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid")
 FILL_WARNING = PatternFill(start_color="FFE4B5", end_color="FFE4B5", fill_type="solid")
-FILL_NOTE    = PatternFill(start_color="FFFFCC", end_color="FFFFCC", fill_type="solid")
-FILL_INFO    = PatternFill(start_color="D6EAF8", end_color="D6EAF8", fill_type="solid")
+FILL_NOTE = PatternFill(start_color="FFFFCC", end_color="FFFFCC", fill_type="solid")
+FILL_INFO = PatternFill(start_color="D6EAF8", end_color="D6EAF8", fill_type="solid")
 
 # Styles spécifiques à l'onglet ANALYSE (Premium)
-FILL_ANA_BG      = PatternFill(start_color="F8F9FA", end_color="F8F9FA", fill_type="solid")
-FILL_ANA_CARD    = PatternFill(start_color="FFFFFF", end_color="FFFFFF", fill_type="solid")
-FILL_ANA_HEADER  = PatternFill(start_color="1F4E79", end_color="1F4E79", fill_type="solid")
-FILL_ANA_STRIPE  = PatternFill(start_color="F2F2F2", end_color="F2F2F2", fill_type="solid")
+FILL_ANA_BG = PatternFill(start_color="F8F9FA", end_color="F8F9FA", fill_type="solid")
+FILL_ANA_CARD = PatternFill(start_color="FFFFFF", end_color="FFFFFF", fill_type="solid")
+FILL_ANA_HEADER = PatternFill(start_color="1F4E79", end_color="1F4E79", fill_type="solid")
+FILL_ANA_STRIPE = PatternFill(start_color="F2F2F2", end_color="F2F2F2", fill_type="solid")
 
 # Couleurs par section
-FILL_SECTION_AUDIT  = PatternFill(start_color="E67E22", end_color="E67E22", fill_type="solid") # Orange - Audit
-FILL_SECTION_GAPS   = PatternFill(start_color="F1C40F", end_color="F1C40F", fill_type="solid") # Jaune - Négociation
-FILL_SECTION_MATRIX = PatternFill(start_color="27AE60", end_color="27AE60", fill_type="solid") # Vert - Mieux-disant
+FILL_SECTION_AUDIT = PatternFill(
+    start_color="E67E22", end_color="E67E22", fill_type="solid"
+)  # Orange - Audit
+FILL_SECTION_GAPS = PatternFill(
+    start_color="F1C40F", end_color="F1C40F", fill_type="solid"
+)  # Jaune - Négociation
+FILL_SECTION_MATRIX = PatternFill(
+    start_color="27AE60", end_color="27AE60", fill_type="solid"
+)  # Vert - Mieux-disant
 
-FONT_ANA_TITLE   = Font(name="Tahoma", bold=True, size=22, color="1F4E79")
-FONT_ANA_SUB     = Font(name="Tahoma", bold=True, size=14, color="314E85")
+FONT_ANA_TITLE = Font(name="Tahoma", bold=True, size=22, color="1F4E79")
+FONT_ANA_SUB = Font(name="Tahoma", bold=True, size=14, color="314E85")
 FONT_ANA_SECTION = Font(name="Tahoma", bold=True, size=14, color="FFFFFF")
-FONT_ANA_BOLD    = Font(name="Tahoma", bold=True, size=10, color="000000")
-FONT_ANA_KPI_L   = Font(name="Tahoma", size=11, color="595959")
-FONT_ANA_KPI_V   = Font(name="Tahoma", bold=True, size=16, color="000000")
-FONT_ANA_WHITE   = Font(name="Tahoma", bold=True, size=10, color="FFFFFF")
+FONT_ANA_BOLD = Font(name="Tahoma", bold=True, size=10, color="000000")
+FONT_ANA_KPI_L = Font(name="Tahoma", size=11, color="595959")
+FONT_ANA_KPI_V = Font(name="Tahoma", bold=True, size=16, color="000000")
+FONT_ANA_WHITE = Font(name="Tahoma", bold=True, size=10, color="FFFFFF")
 
 BORDER_ANA_CARD = Border(
     left=Side(style="medium", color="D9D9D9"),
     right=Side(style="medium", color="D9D9D9"),
     top=Side(style="medium", color="1F4E79"),
-    bottom=Side(style="medium", color="D9D9D9")
+    bottom=Side(style="medium", color="D9D9D9"),
 )
 
 THIN_BORDER = Border(
-    left=Side(style="thin"), right=Side(style="thin"),
-    top=Side(style="thin"),  bottom=Side(style="thin"),
+    left=Side(style="thin"),
+    right=Side(style="thin"),
+    top=Side(style="thin"),
+    bottom=Side(style="thin"),
 )
 THICK_TOP_BORDER = THIN_BORDER  # référence : uniquement thin, pas de medium
 
 # Formats numériques — format exact de la référence
-MONEY_FORMAT = r'###,###,###,##0.00\ \€;\-###,###,###,##0.00\ \€;'
-QTY_FORMAT   = r'###,###,###,##0.00;\-###,###,###,##0.00;'
+MONEY_FORMAT = r"###,###,###,##0.00\ \€;\-###,###,###,##0.00\ \€;"
+QTY_FORMAT = r"###,###,###,##0.00;\-###,###,###,##0.00;"
 
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _detect_companies(df: pd.DataFrame) -> list[str]:
     """Détecte les noms d'entreprises à partir des colonnes _Qu."""
@@ -133,23 +147,28 @@ def _auto_width(ws, min_width: int = 8, max_width: int = 40) -> None:
             if cell.value:
                 # Truncate string representation to check length, avoid huge cells
                 val_str = str(cell.value)
-                line_len = max(len(line) for line in val_str.split('\n')) if '\n' in val_str else len(val_str)
+                line_len = (
+                    max(len(line) for line in val_str.split("\n"))
+                    if "\n" in val_str
+                    else len(val_str)
+                )
                 max_len = max(max_len, min(line_len + 2, max_width))
         ws.column_dimensions[col_letter].width = max_len
 
 
 def _get_alert_fill(color: str) -> PatternFill | None:
-    return {"red": FILL_ERROR, "orange": FILL_WARNING,
-            "yellow": FILL_NOTE, "blue": FILL_INFO}.get(color)
+    return {"red": FILL_ERROR, "orange": FILL_WARNING, "yellow": FILL_NOTE, "blue": FILL_INFO}.get(
+        color
+    )
 
 
 def _get_row_style(row_type: str) -> tuple[Font, PatternFill | None]:
     return {
-        "section_header": (FONT_SECTION,     FILL_SECTION),
-        "recap":          (FONT_RECAP,        FILL_RECAP),
-        "recap_summary":  (FONT_RECAP,        FILL_RECAP_SUMMARY),
-        "total_line":     (FONT_TOTAL,        FILL_TOTAL_LINE),
-        "sub_section":    (FONT_SUB_SECTION,  FILL_SUB_SECTION),
+        "section_header": (FONT_SECTION, FILL_SECTION),
+        "recap": (FONT_RECAP, FILL_RECAP),
+        "recap_summary": (FONT_RECAP, FILL_RECAP_SUMMARY),
+        "total_line": (FONT_TOTAL, FILL_TOTAL_LINE),
+        "sub_section": (FONT_SUB_SECTION, FILL_SUB_SECTION),
     }.get(row_type, (FONT_DATA, None))
 
 
@@ -180,13 +199,18 @@ def fix_merged_cells_crossing_freeze(
         if not (crosses_col or crosses_row):
             continue
         pivot = ws.cell(row=mr.min_row, column=mr.min_col)
-        to_process.append((
-            mr.coord,
-            mr.min_row, mr.min_col, mr.max_row, mr.max_col,
-            pivot.value,
-            pivot.font.copy() if pivot.font else None,
-            pivot.fill.copy() if pivot.fill else None,
-        ))
+        to_process.append(
+            (
+                mr.coord,
+                mr.min_row,
+                mr.min_col,
+                mr.max_row,
+                mr.max_col,
+                pivot.value,
+                pivot.font.copy() if pivot.font else None,
+                pivot.fill.copy() if pivot.fill else None,
+            )
+        )
 
     for coord, min_row, min_col, max_row, max_col, val, fnt, fll in to_process:
         ws.unmerge_cells(coord)
@@ -265,29 +289,28 @@ def create_analysis_sheet(
     ws.sheet_view.showGridLines = False
     ws.sheet_properties.tabColor = "C00000"
 
-    FILL_SHEET_BG = PatternFill(start_color="F8F9FA", end_color="F8F9FA", fill_type="solid")
-    FILL_HDR      = PatternFill(start_color="1F4E79", end_color="1F4E79", fill_type="solid")
-    FILL_ROW_ERR  = PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid")
+    FILL_HDR = PatternFill(start_color="1F4E79", end_color="1F4E79", fill_type="solid")
+    FILL_ROW_ERR = PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid")
     FILL_ROW_WARN = PatternFill(start_color="FFE4B5", end_color="FFE4B5", fill_type="solid")
     FILL_ROW_INFO = PatternFill(start_color="D6EAF8", end_color="D6EAF8", fill_type="solid")
-    FILL_EMPTY    = PatternFill(start_color="F2F2F2", end_color="F2F2F2", fill_type="solid")
+    FILL_EMPTY = PatternFill(start_color="F2F2F2", end_color="F2F2F2", fill_type="solid")
 
-    TYPE_FILLS   = {"error": FILL_ROW_ERR, "warning": FILL_ROW_WARN, "info": FILL_ROW_INFO}
-    TYPE_LABELS  = {"error": "ERREUR", "warning": "AVERTISSEMENT", "info": "INFO"}
-    TYPE_FCOLORS = {"error": "C00000",  "warning": "FF6600",        "info": "1F4E79"}
+    TYPE_FILLS = {"error": FILL_ROW_ERR, "warning": FILL_ROW_WARN, "info": FILL_ROW_INFO}
+    TYPE_LABELS = {"error": "ERREUR", "warning": "AVERTISSEMENT", "info": "INFO"}
+    TYPE_FCOLORS = {"error": "C00000", "warning": "FF6600", "info": "1F4E79"}
 
     # --- Dimensions des colonnes ---
-    ws.column_dimensions["A"].width = 6    # N
-    ws.column_dimensions["B"].width = 16   # Severite
-    ws.column_dimensions["C"].width = 16   # Code
-    ws.column_dimensions["D"].width = 28   # Entreprise
-    ws.column_dimensions["E"].width = 75   # Message
+    ws.column_dimensions["A"].width = 6  # N
+    ws.column_dimensions["B"].width = 16  # Severite
+    ws.column_dimensions["C"].width = 16  # Code
+    ws.column_dimensions["D"].width = 28  # Entreprise
+    ws.column_dimensions["E"].width = 75  # Message
 
     # --- Titre ---
     title_cell = ws.cell(row=1, column=1, value="LISTING DES ERREURS ET AVERTISSEMENTS")
-    title_cell.font      = Font(name="Tahoma", bold=True, size=14, color="1F4E79")
+    title_cell.font = Font(name="Tahoma", bold=True, size=14, color="1F4E79")
     title_cell.alignment = Alignment(horizontal="left", vertical="center")
-    title_cell.fill      = PatternFill(start_color="FFFFFF", end_color="FFFFFF", fill_type="solid")
+    title_cell.fill = PatternFill(start_color="FFFFFF", end_color="FFFFFF", fill_type="solid")
     ws.merge_cells("A1:E1")
     ws.row_dimensions[1].height = 30
 
@@ -300,25 +323,25 @@ def create_analysis_sheet(
     headers = ["N", "Severite", "Code", "Entreprise", "Message"]
     for i, h in enumerate(headers, start=1):
         cell = ws.cell(row=3, column=i, value=h)
-        cell.font      = Font(name="Tahoma", bold=True, size=10, color="FFFFFF")
-        cell.fill      = FILL_HDR
+        cell.font = Font(name="Tahoma", bold=True, size=10, color="FFFFFF")
+        cell.fill = FILL_HDR
         cell.alignment = Alignment(horizontal="center", vertical="center")
-        cell.border    = THIN_BORDER
+        cell.border = THIN_BORDER
     ws.row_dimensions[3].height = 22
 
     # --- Lignes d'alerte ---
     if not alerts:
         cell = ws.cell(row=4, column=1, value="Aucune erreur detectee.")
-        cell.font      = Font(name="Tahoma", italic=True, size=10, color="595959")
-        cell.fill      = FILL_EMPTY
+        cell.font = Font(name="Tahoma", italic=True, size=10, color="595959")
+        cell.fill = FILL_EMPTY
         cell.alignment = Alignment(horizontal="left", vertical="center", indent=1)
         ws.merge_cells("A4:E4")
         ws.row_dimensions[4].height = 24
     else:
         for idx, alert in enumerate(alerts, start=1):
-            row_num  = 3 + idx
+            row_num = 3 + idx
             severity = alert.get("type", "info")
-            fill     = TYPE_FILLS.get(severity, FILL_ROW_INFO)
+            fill = TYPE_FILLS.get(severity, FILL_ROW_INFO)
 
             values = [
                 idx,
@@ -329,13 +352,14 @@ def create_analysis_sheet(
             ]
 
             for col_i, val in enumerate(values, start=1):
-                cell           = ws.cell(row=row_num, column=col_i, value=val)
-                cell.fill      = fill
-                cell.border    = THIN_BORDER
+                cell = ws.cell(row=row_num, column=col_i, value=val)
+                cell.fill = fill
+                cell.border = THIN_BORDER
                 cell.alignment = Alignment(vertical="top", wrap_text=(col_i == 5))
                 if col_i == 2:
-                    cell.font = Font(name="Tahoma", bold=True, size=9,
-                                     color=TYPE_FCOLORS.get(severity, "000000"))
+                    cell.font = Font(
+                        name="Tahoma", bold=True, size=9, color=TYPE_FCOLORS.get(severity, "000000")
+                    )
                 elif col_i == 1:
                     cell.font = Font(name="Tahoma", bold=True, size=9, color="595959")
                     cell.alignment = Alignment(horizontal="center", vertical="top")
@@ -348,6 +372,7 @@ def create_analysis_sheet(
 # ---------------------------------------------------------------------------
 # Main exporter
 # ---------------------------------------------------------------------------
+
 
 def export_tco(
     merged_df: pd.DataFrame,
@@ -363,7 +388,7 @@ def export_tco(
         alerts = []
 
     log.info("Début export Excel. Lignes=%d", len(merged_df))
-    
+
     wb = openpyxl.Workbook()
     ws = wb.active
     ws.title = meta.get("sheet_name", "TCO Final")
@@ -385,7 +410,7 @@ def export_tco(
     company_start_col = 7
     for comp_idx, comp in enumerate(companies):
         start_col = company_start_col
-        end_col   = start_col + 3
+        end_col = start_col + 3
         ws.cell(row=1, column=start_col, value=comp)
         ws.merge_cells(start_row=1, start_column=start_col, end_row=1, end_column=end_col)
         fill = FILL_COMPANY_COLORS[comp_idx % len(FILL_COMPANY_COLORS)]
@@ -406,7 +431,7 @@ def export_tco(
         cell.border = THIN_BORDER
 
     col_offset = 7
-    for comp_idx, comp in enumerate(companies):
+    for comp_idx, _comp in enumerate(companies):
         fill = FILL_COMPANY_COLORS[comp_idx % len(FILL_COMPANY_COLORS)]
         for i, header in enumerate(["Qu.", "Px U. HT", "Px Tot HT", "Commentaire poste"]):
             cell = ws.cell(row=2, column=col_offset + i, value=header)
@@ -427,29 +452,29 @@ def export_tco(
 
     # --- ROWS 3+ : Données ---
     excel_row = 3
-    
+
     # Tracking pour les formules dynamiques
-    section_articles: dict[str, list[int]] = {}   # { '01.1': [row_idx, ...] }
-    section_total_row: dict[str, int] = {}         # { '01.1': recap_row_idx }
-    section_header_rows: dict[str, int] = {}       # { '01.1': section_header_row_idx }
-    recap_summary_rows: list[int] = []             # [row_idx, ...]
-    
+    section_articles: dict[str, list[int]] = {}  # { '01.1': [row_idx, ...] }
+    section_total_row: dict[str, int] = {}  # { '01.1': recap_row_idx }
+    section_header_rows: dict[str, int] = {}  # { '01.1': section_header_row_idx }
+    recap_summary_rows: list[int] = []  # [row_idx, ...]
+
     current_section_code: str | None = None
-    
+
     # QW-3 : Variables initialisées ici (pas de 'in locals()' fragile)
     ht_row_idx: int | None = None
     tva_row_idx: int | None = None
-    
+
     # On fait un premier passage pour identifier les lignes et types si nécessaire ?
     # Non, on peut faire en un passage car les articles précèdent leurs totaux,
     # et les totaux précèdent le récap (généralement).
-    
+
     for _, row in merged_df.iterrows():
         row_type = row["row_type"]
         if row_type == "empty":
             continue
 
-        code  = str(row.get("Code", "")).strip()
+        code = str(row.get("Code", "")).strip()
         desig = str(row.get("Désignation", "")).strip()
         desig_lower = desig.lower()
 
@@ -465,7 +490,7 @@ def export_tco(
         ws.cell(row=excel_row, column=3, value=row.get("Qu."))
         ws.cell(row=excel_row, column=4, value=row.get("U"))
         ws.cell(row=excel_row, column=5, value=row.get("Px_U_HT"))
-        
+
         # --- Colonne F : TCO / Estimation ---
         # FIX CAS 2/3/4 : sub_section ET article contribuent au total de leur section.
         # Les sub_sections (Entete _Niv1/_Niv2) ont des prix propres (ex: 06.5.3.2)
@@ -484,7 +509,7 @@ def export_tco(
             else:
                 ws.cell(row=excel_row, column=6, value=0)
             section_total_row[current_section_code] = excel_row
-            
+
         elif row_type == "recap_summary":
             # Ligne dans le tableau final récapitulatif
             recap_summary_rows.append(excel_row)
@@ -494,13 +519,14 @@ def export_tco(
             if target_row:
                 ws.cell(row=excel_row, column=6, value=f"=F{target_row}")
             else:
-                ws.cell(row=excel_row, column=6, value=row.get("Px_Tot_HT")) # Fallback
-                
+                ws.cell(row=excel_row, column=6, value=row.get("Px_Tot_HT"))  # Fallback
+
         elif re.search(r"montant\s+ht", desig_lower):
             # Grand Total HT
             if recap_summary_rows:
-                ws.cell(row=excel_row, column=6,
-                        value=_rows_to_sum_formula("F", recap_summary_rows))
+                ws.cell(
+                    row=excel_row, column=6, value=_rows_to_sum_formula("F", recap_summary_rows)
+                )
             else:
                 ws.cell(row=excel_row, column=6, value=row.get("Px_Tot_HT"))
             ht_row_idx = excel_row
@@ -532,50 +558,70 @@ def export_tco(
         # --- Colonnes Entreprises ---
         col_offset = 7
         for comp in companies:
-            ws.cell(row=excel_row, column=col_offset,     value=row.get(f"{comp}_Qu."))
+            ws.cell(row=excel_row, column=col_offset, value=row.get(f"{comp}_Qu."))
             ws.cell(row=excel_row, column=col_offset + 1, value=row.get(f"{comp}_Px_U_HT"))
-            
-            qu_col  = get_column_letter(col_offset)
-            px_col  = get_column_letter(col_offset + 1)
+
+            qu_col = get_column_letter(col_offset)
+            px_col = get_column_letter(col_offset + 1)
             tot_col = get_column_letter(col_offset + 2)
-            
+
             if row_type == "article":
-                ws.cell(row=excel_row, column=col_offset + 2,
-                        value=f"={qu_col}{excel_row}*{px_col}{excel_row}")
+                ws.cell(
+                    row=excel_row,
+                    column=col_offset + 2,
+                    value=f"={qu_col}{excel_row}*{px_col}{excel_row}",
+                )
             elif row_type == "recap":
                 rows = section_articles.get(current_section_code, [])
                 if rows:
-                    ws.cell(row=excel_row, column=col_offset + 2,
-                            value=_rows_to_sum_formula(tot_col, rows))
+                    ws.cell(
+                        row=excel_row,
+                        column=col_offset + 2,
+                        value=_rows_to_sum_formula(tot_col, rows),
+                    )
                 else:
                     ws.cell(row=excel_row, column=col_offset + 2, value=0)
             elif row_type == "recap_summary":
                 target_row = section_total_row.get(code)
                 if target_row:
-                    ws.cell(row=excel_row, column=col_offset + 2,
-                            value=f"={tot_col}{target_row}")
+                    ws.cell(row=excel_row, column=col_offset + 2, value=f"={tot_col}{target_row}")
                 else:
-                    ws.cell(row=excel_row, column=col_offset + 2,
-                            value=row.get(f"{comp}_Px_Tot_HT"))
+                    ws.cell(
+                        row=excel_row, column=col_offset + 2, value=row.get(f"{comp}_Px_Tot_HT")
+                    )
             elif re.search(r"montant\s+ht", desig_lower):
                 if recap_summary_rows:
-                    ws.cell(row=excel_row, column=col_offset + 2,
-                            value=_rows_to_sum_formula(tot_col, recap_summary_rows))
+                    ws.cell(
+                        row=excel_row,
+                        column=col_offset + 2,
+                        value=_rows_to_sum_formula(tot_col, recap_summary_rows),
+                    )
                 else:
-                    ws.cell(row=excel_row, column=col_offset + 2,
-                            value=row.get(f"{comp}_Px_Tot_HT"))
+                    ws.cell(
+                        row=excel_row, column=col_offset + 2, value=row.get(f"{comp}_Px_Tot_HT")
+                    )
             elif re.search(r"tva", desig_lower) and not re.search(r"ht", desig_lower):
                 if ht_row_idx is not None:
-                    ws.cell(row=excel_row, column=col_offset + 2, value=f"={tot_col}{ht_row_idx}*{tva_rate}")
+                    ws.cell(
+                        row=excel_row,
+                        column=col_offset + 2,
+                        value=f"={tot_col}{ht_row_idx}*{tva_rate}",
+                    )
                 else:
-                    ws.cell(row=excel_row, column=col_offset + 2, value=row.get(f"{comp}_Px_Tot_HT"))
+                    ws.cell(
+                        row=excel_row, column=col_offset + 2, value=row.get(f"{comp}_Px_Tot_HT")
+                    )
             elif re.search(r"montant\s+ttc", desig_lower):
                 if ht_row_idx is not None and tva_row_idx is not None:
-                    ws.cell(row=excel_row, column=col_offset + 2,
-                            value=f"={tot_col}{ht_row_idx}+{tot_col}{tva_row_idx}")
+                    ws.cell(
+                        row=excel_row,
+                        column=col_offset + 2,
+                        value=f"={tot_col}{ht_row_idx}+{tot_col}{tva_row_idx}",
+                    )
                 else:
-                    ws.cell(row=excel_row, column=col_offset + 2,
-                            value=row.get(f"{comp}_Px_Tot_HT"))
+                    ws.cell(
+                        row=excel_row, column=col_offset + 2, value=row.get(f"{comp}_Px_Tot_HT")
+                    )
             elif row_type == "sub_section":
                 # PARTIE 3 : formule dynamique si données présentes
                 try:
@@ -584,26 +630,34 @@ def export_tco(
                 except (ValueError, TypeError):
                     comp_qu = comp_px = 0.0
                 if comp_qu != 0 and comp_px != 0:
-                    ws.cell(row=excel_row, column=col_offset + 2,
-                            value=f"={qu_col}{excel_row}*{px_col}{excel_row}")
+                    ws.cell(
+                        row=excel_row,
+                        column=col_offset + 2,
+                        value=f"={qu_col}{excel_row}*{px_col}{excel_row}",
+                    )
                 else:
-                    ws.cell(row=excel_row, column=col_offset + 2,
-                            value=row.get(f"{comp}_Px_Tot_HT"))
+                    ws.cell(
+                        row=excel_row, column=col_offset + 2, value=row.get(f"{comp}_Px_Tot_HT")
+                    )
             else:
                 ws.cell(row=excel_row, column=col_offset + 2, value=row.get(f"{comp}_Px_Tot_HT"))
-                
+
             ws.cell(row=excel_row, column=col_offset + 3, value=row.get(f"{comp}_Commentaire"))
             col_offset += 4
 
         # --- Format numérique (appliqué à toutes les lignes) ---
-        ws.cell(row=excel_row, column=3).number_format = QTY_FORMAT    # Qu. TCO
+        ws.cell(row=excel_row, column=3).number_format = QTY_FORMAT  # Qu. TCO
         ws.cell(row=excel_row, column=5).number_format = MONEY_FORMAT  # Px U HT TCO
         ws.cell(row=excel_row, column=6).number_format = MONEY_FORMAT  # Px Tot HT TCO
         _ncol = 7
         for _ in companies:
-            ws.cell(row=excel_row, column=_ncol).number_format     = QTY_FORMAT    # Qu. entreprise
-            ws.cell(row=excel_row, column=_ncol + 1).number_format = MONEY_FORMAT  # Px U HT entreprise
-            ws.cell(row=excel_row, column=_ncol + 2).number_format = MONEY_FORMAT  # Px Tot HT entreprise
+            ws.cell(row=excel_row, column=_ncol).number_format = QTY_FORMAT  # Qu. entreprise
+            ws.cell(
+                row=excel_row, column=_ncol + 1
+            ).number_format = MONEY_FORMAT  # Px U HT entreprise
+            ws.cell(
+                row=excel_row, column=_ncol + 2
+            ).number_format = MONEY_FORMAT  # Px Tot HT entreprise
             _ncol += 4
 
         # --- Style ---
@@ -664,7 +718,7 @@ def export_tco(
                     break
                 if alert["type"] == "warning":
                     max_severity = "warning"
-            
+
             if max_severity == "error":
                 # Mise en rouge de toute la ligne (Critique)
                 for c in range(1, max_col + 1):
@@ -673,8 +727,9 @@ def export_tco(
                 # Warning/info : uniquement cellule Commentaire de l'entreprise concernée
                 for alert in alert_by_code[code]:
                     fill = _get_alert_fill(alert["color"])
-                    if not fill: continue
-                    
+                    if not fill:
+                        continue
+
                     target_comp = alert.get("company")
                     if target_comp and target_comp in companies:
                         comp_idx = companies.index(target_comp)
@@ -712,8 +767,7 @@ def export_tco(
             if recap_row:
                 ws.cell(row=sh_row, column=c_off + 2, value=f"={tc}{recap_row}")
             elif art_rows:
-                ws.cell(row=sh_row, column=c_off + 2,
-                        value=_rows_to_sum_formula(tc, art_rows))
+                ws.cell(row=sh_row, column=c_off + 2, value=_rows_to_sum_formula(tc, art_rows))
             c_off += 4
 
     # Largeurs de colonnes — valeurs exactes de la référence
@@ -725,18 +779,18 @@ def export_tco(
     ws.column_dimensions["F"].width = 16.5
     for _ci in range(len(companies)):
         _cb = 7 + _ci * 4
-        ws.column_dimensions[get_column_letter(_cb)].width     = 9.5    # Qu.
-        ws.column_dimensions[get_column_letter(_cb + 1)].width = 14.125 # Px U HT
-        ws.column_dimensions[get_column_letter(_cb + 2)].width = 16.5   # Px Tot HT
-        ws.column_dimensions[get_column_letter(_cb + 3)].width = 25.0   # Commentaire
+        ws.column_dimensions[get_column_letter(_cb)].width = 9.5  # Qu.
+        ws.column_dimensions[get_column_letter(_cb + 1)].width = 14.125  # Px U HT
+        ws.column_dimensions[get_column_letter(_cb + 2)].width = 16.5  # Px Tot HT
+        ws.column_dimensions[get_column_letter(_cb + 3)].width = 25.0  # Commentaire
 
     # Hauteurs en-têtes : 14.25 pt (conforme référence)
     ws.row_dimensions[1].height = 14.25
     ws.row_dimensions[2].height = 14.25
 
     # Freeze panes robuste + corrections anti-chevauchement
-    fix_freeze_panes(ws)                              # C3 : lignes 1-2 + cols A-B
-    fix_merged_cells_crossing_freeze(ws)              # retire fusions qui traversent C3
+    fix_freeze_panes(ws)  # C3 : lignes 1-2 + cols A-B
+    fix_merged_cells_crossing_freeze(ws)  # retire fusions qui traversent C3
     prevent_text_overflow(ws, min_row=3, max_col=max_col)  # fill blanc sur cellules vides
 
     # --- CRÉATION DE L'ONGLET ANALYSE ---
