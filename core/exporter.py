@@ -51,7 +51,7 @@ FILL_COMPANY_COLORS = [
 
 # Lignes de données : fond blanc pur (conforme référence — hiérarchie via couleur police)
 # Format ARGB 8 chars : "FFFFFFFF" = blanc opaque — correspond à fgColor.rgb de la référence
-FILL_WHITE = PatternFill(start_color="FFFFFFFF", end_color="FFFFFFFF", fill_type="solid")
+FILL_WHITE = PatternFill(start_color="FFFFFF", end_color="FFFFFF", fill_type="solid")
 FILL_SECTION       = FILL_WHITE
 FILL_RECAP         = FILL_WHITE
 FILL_RECAP_SUMMARY = FILL_WHITE
@@ -128,11 +128,11 @@ def _get_row_style(row_type: str) -> tuple[Font, PatternFill | None]:
     }.get(row_type, (FONT_DATA, None))
 
 
-def fix_freeze_panes(ws, header_rows: int = 2, frozen_cols: int = 2) -> None:
+def fix_freeze_panes(ws, header_rows: int = 2, frozen_cols: int = 0) -> None:
     """
     Garantit que le freeze panes est positionné à la cellule ancre correcte.
-    header_rows=2, frozen_cols=2  →  ancre C3
-    (lignes 1-2 figées + colonnes A-B figées).
+    header_rows=2, frozen_cols=0  →  ancre A3
+    (lignes 1-2 figées + 0 colonnes figées).
     """
     anchor = f"{get_column_letter(frozen_cols + 1)}{header_rows + 1}"
     ws.freeze_panes = anchor
