@@ -50,7 +50,8 @@ FILL_COMPANY_COLORS = [
 ]
 
 # Lignes de données : fond blanc pur (conforme référence — hiérarchie via couleur police)
-FILL_WHITE         = PatternFill(start_color="FFFFFF", end_color="FFFFFF", fill_type="solid")
+# Format ARGB 8 chars : "FFFFFFFF" = blanc opaque — correspond à fgColor.rgb de la référence
+FILL_WHITE = PatternFill(start_color="FFFFFFFF", end_color="FFFFFFFF", fill_type="solid")
 FILL_SECTION       = FILL_WHITE
 FILL_RECAP         = FILL_WHITE
 FILL_RECAP_SUMMARY = FILL_WHITE
@@ -127,6 +128,80 @@ def _get_row_style(row_type: str) -> tuple[Font, PatternFill | None]:
     }.get(row_type, (FONT_DATA, None))
 
 
+def fix_freeze_panes(ws, header_rows: int = 2, frozen_cols: int = 2) -> None:
+    """
+    Garantit que le freeze panes est positionné à la cellule ancre correcte.
+    header_rows=2, frozen_cols=2  →  ancre C3
+    (lignes 1-2 figées + colonnes A-B figées).
+    """
+    anchor = f"{get_column_letter(frozen_cols + 1)}{header_rows + 1}"
+    ws.freeze_panes = anchor
+
+
+def fix_merged_cells_crossing_freeze(
+    ws,
+    header_rows: int = 2,
+    frozen_cols: int = 2,
+) -> None:
+    """
+    Supprime toute fusion qui traverse la frontière de freeze panes.
+    Les fusions horizontales sont remplacées par centerContinuous pour
+    conserver l'effet visuel sans provoquer de chevauchement au scroll.
+    """
+    to_process = []
+    for mr in list(ws.merged_cells.ranges):
+        crosses_col = mr.min_col <= frozen_cols < mr.max_col
+        crosses_row = mr.min_row <= header_rows < mr.max_row
+        if not (crosses_col or crosses_row):
+            continue
+        pivot = ws.cell(row=mr.min_row, column=mr.min_col)
+        to_process.append((
+            mr.coord,
+            mr.min_row, mr.min_col, mr.max_row, mr.max_col,
+            pivot.value,
+            pivot.font.copy() if pivot.font else None,
+            pivot.fill.copy() if pivot.fill else None,
+        ))
+
+    for coord, min_row, min_col, max_row, max_col, val, fnt, fll in to_process:
+        ws.unmerge_cells(coord)
+        for r in range(min_row, max_row + 1):
+            for c in range(min_col, max_col + 1):
+                cell = ws.cell(row=r, column=c)
+                if fnt:
+                    cell.font = fnt
+                if fll:
+                    cell.fill = fll
+                if max_row == min_row:  # fusion horizontale → center across
+                    cell.alignment = Alignment(horizontal="centerContinuous")
+        ws.cell(row=min_row, column=min_col).value = val
+        log.debug("Fusion crossing freeze corrigée : %s", coord)
+
+
+def prevent_text_overflow(
+    ws,
+    min_row: int = 3,
+    max_row: int | None = None,
+    min_col: int = 1,
+    max_col: int | None = None,
+) -> None:
+    """
+    Garantit qu'aucune cellule du tableau n'est transparente (fill_type=None).
+    Un fill blanc sur les cellules vides empêche le texte adjacent de déborder
+    horizontalement pendant le scroll (effet "spill" Excel).
+    """
+    if max_row is None:
+        max_row = ws.max_row
+    if max_col is None:
+        max_col = ws.max_column
+    for r in range(min_row, max_row + 1):
+        for c in range(min_col, max_col + 1):
+            cell = ws.cell(row=r, column=c)
+            ft = cell.fill.fill_type if cell.fill else None
+            if ft is None or ft == "none":
+                cell.fill = FILL_WHITE
+
+
 def _rows_to_sum_formula(col: str, rows: list[int]) -> str:
     """
     Convertit une liste de numéros de lignes Excel en formule =SUM() avec plages.
@@ -179,7 +254,8 @@ def export_tco(
     ws.cell(row=1, column=2, value="Etudes")
     ws.cell(row=1, column=3, value=" Estimation")
     ws.merge_cells(start_row=1, start_column=3, end_row=1, end_column=6)
-    for c in range(2, 7):
+    # Col 1 (A1) incluse : fill obligatoire pour bloquer le débordement de B1 au scroll
+    for c in range(1, 7):
         cell = ws.cell(row=1, column=c)
         cell.font = FONT_HEADER
         cell.fill = FILL_HEADER
@@ -441,18 +517,22 @@ def export_tco(
             cell = ws.cell(row=excel_row, column=c)
             cell.font = font
             cell.border = _border
-            if fill:
-                cell.fill = fill
+            # Toutes les cellules reçoivent un fill solide (même blanc) :
+            # sans fill, les cellules transparentes laissent le texte de B déborder
+            # sur les colonnes adjacentes pendant le scroll (freeze pane C3).
+            cell.fill = fill if fill else FILL_WHITE
 
-        # Indentation hiérarchique de la désignation (col B)
+        # Indentation hiérarchique + wrap_text sur col B (Désignation).
+        # wrap_text=True empêche le débordement horizontal du texte long vers col C.
+        # vertical="top" aligne le texte en haut quand la hauteur de ligne est fixe.
+        _indent = 0
         if row_type == "article":
-            ws.cell(row=excel_row, column=2).alignment = Alignment(
-                horizontal="left", indent=2
-            )
+            _indent = 2
         elif row_type == "sub_section" and font is not FONT_MAIN_TITLE:
-            ws.cell(row=excel_row, column=2).alignment = Alignment(
-                horizontal="left", indent=1
-            )
+            _indent = 1
+        ws.cell(row=excel_row, column=2).alignment = Alignment(
+            horizontal="left", indent=_indent, wrap_text=True, vertical="top"
+        )
 
         if code and code in alert_by_code and row_type == "article":
             # Détecter la sévérité maximale pour cette ligne
@@ -526,9 +606,10 @@ def export_tco(
     ws.row_dimensions[1].height = 14.25
     ws.row_dimensions[2].height = 14.25
 
-    # Figer lignes 1+2 (en-têtes) ET colonnes A (Code) + B (Désignation)
-    # Règle OpenPyXL : ancre "C3" → lignes < 3 figées + colonnes < C figées
-    ws.freeze_panes = "C3"
+    # Freeze panes robuste + corrections anti-chevauchement
+    fix_freeze_panes(ws)                              # C3 : lignes 1-2 + cols A-B
+    fix_merged_cells_crossing_freeze(ws)              # retire fusions qui traversent C3
+    prevent_text_overflow(ws, min_row=3, max_col=max_col)  # fill blanc sur cellules vides
 
     log.info("Workbook prêt. Output_path=%s", output_path)
 
