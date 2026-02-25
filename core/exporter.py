@@ -79,17 +79,24 @@ FILL_ANA_BG      = PatternFill(start_color="F8F9FA", end_color="F8F9FA", fill_ty
 FILL_ANA_CARD    = PatternFill(start_color="FFFFFF", end_color="FFFFFF", fill_type="solid")
 FILL_ANA_HEADER  = PatternFill(start_color="1F4E79", end_color="1F4E79", fill_type="solid")
 FILL_ANA_STRIPE  = PatternFill(start_color="F2F2F2", end_color="F2F2F2", fill_type="solid")
-FONT_ANA_TITLE   = Font(name="Tahoma", bold=True, size=18, color="1F4E79")
-FONT_ANA_SUB     = Font(name="Tahoma", bold=True, size=12, color="314E85")
+
+# Couleurs par section
+FILL_SECTION_AUDIT  = PatternFill(start_color="E67E22", end_color="E67E22", fill_type="solid") # Orange - Audit
+FILL_SECTION_GAPS   = PatternFill(start_color="F1C40F", end_color="F1C40F", fill_type="solid") # Jaune - Négociation
+FILL_SECTION_MATRIX = PatternFill(start_color="27AE60", end_color="27AE60", fill_type="solid") # Vert - Mieux-disant
+
+FONT_ANA_TITLE   = Font(name="Tahoma", bold=True, size=22, color="1F4E79")
+FONT_ANA_SUB     = Font(name="Tahoma", bold=True, size=14, color="314E85")
+FONT_ANA_SECTION = Font(name="Tahoma", bold=True, size=14, color="FFFFFF")
 FONT_ANA_BOLD    = Font(name="Tahoma", bold=True, size=10, color="000000")
-FONT_ANA_KPI_L   = Font(name="Tahoma", size=10, color="595959")
-FONT_ANA_KPI_V   = Font(name="Tahoma", bold=True, size=14, color="000000")
+FONT_ANA_KPI_L   = Font(name="Tahoma", size=11, color="595959")
+FONT_ANA_KPI_V   = Font(name="Tahoma", bold=True, size=16, color="000000")
 FONT_ANA_WHITE   = Font(name="Tahoma", bold=True, size=10, color="FFFFFF")
 
 BORDER_ANA_CARD = Border(
     left=Side(style="medium", color="D9D9D9"),
     right=Side(style="medium", color="D9D9D9"),
-    top=Side(style="medium", color="D9D9D9"),
+    top=Side(style="medium", color="1F4E79"),
     bottom=Side(style="medium", color="D9D9D9")
 )
 
@@ -254,188 +261,184 @@ def create_analysis_sheet(
     Crée l'onglet 'Analyse' (Feuille 2) avec un rendu 'Dashboard Premium'.
     """
     ws = wb.create_sheet("Analyse", index=1)
-    ws.sheet_view.showGridLines = False  # Rendu plus propre
+    ws.sheet_view.showGridLines = False
     ws.sheet_properties.tabColor = "1F4E79"
     
-    # 0. Fond de page gris très léger
-    for r in range(1, 150):
-        for c in range(1, 25):
+    # Fond de page
+    for r in range(1, 200):
+        for c in range(1, 40):
             ws.cell(row=r, column=c).fill = FILL_ANA_BG
             
-    # Configuration largeurs colonnes
-    ws.column_dimensions["A"].width = 3
+    ws.column_dimensions["A"].width = 4
     ws.column_dimensions["B"].width = 25
-    ws.column_dimensions["C"].width = 40
+    ws.column_dimensions["C"].width = 45
     ws.column_dimensions["D"].width = 18
     ws.column_dimensions["E"].width = 18
     ws.column_dimensions["F"].width = 18
     
-    # 1. Header principal
-    ws.cell(row=2, column=2, value="📊 ANALYSE DÉCISIONNELLE & NÉGOCIATION").font = FONT_ANA_TITLE
-    ws.cell(row=3, column=2, value="Lot unique - Support d'aide à la décision stratégique").font = FONT_ANA_SUB
+    # 1. HEADER D'ONGLET
+    ws.cell(row=2, column=2, value="📊 TABLEAU DE BORD DÉCISIONNEL").font = FONT_ANA_TITLE
+    ws.cell(row=3, column=2, value="Analyse comparative et outils de négociation stratégique").font = FONT_ANA_SUB
     
-    # --- CALCULS PRÉALABLES ---
+    # --- CALCULS ---
     mask_ht = merged_df["Désignation"].str.contains(r"Montant HT", case=False, na=False)
     df_ht = merged_df[mask_ht]
-    
     budget_ht = 0.0
     company_totals = {}
     if not df_ht.empty:
         row_ht = df_ht.iloc[0]
         budget_ht = float(row_ht.get("Px_Tot_HT", 0) or 0)
         for comp in companies:
-            val = row_ht.get(f"{comp}_Px_Tot_HT", 0)
-            company_totals[comp] = float(val or 0)
+            company_totals[comp] = float(row_ht.get(f"{comp}_Px_Tot_HT", 0) or 0)
 
-    # 2. Cartes KPIs (Dashboards)
-    # Positions des cartes : B5, D5, F5
-    kpi_positions = [
-        ("BUDGET ESTIMÉ", budget_ht, 2),
-        ("OFFRE LA PLUS BASSE", min(company_totals.values()) if company_totals else 0, 4),
-        ("MOYENNE MARCHÉ", sum(company_totals.values())/len(company_totals) if company_totals else 0, 6)
+    # 2. CARRES KPIs (B5-C8, D5-E8, F5-G8)
+    # Espacement : 1 colonne vide entre les cartes
+    kpis = [
+        ("BUDGET ESTIMÉ", budget_ht, 2, "1F4E79"),
+        ("MOINS DISANT", min(company_totals.values()) if company_totals else 0, 5, "27AE60"),
+        ("MOYENNE MARCHÉ", sum(company_totals.values())/len(company_totals) if company_totals else 0, 8, "7F8C8D")
     ]
     
-    for label, val, col_idx in kpi_positions:
-        # Cadre de la carte
-        for r in range(5, 9):
-            for c in [col_idx, col_idx + 1]:
-                cell = ws.cell(row=r, column=c)
+    for label, val, start_col, color in kpis:
+        # Cadre blanc
+        for r in range(5, 10):
+            for i in range(2):
+                cell = ws.cell(row=r, column=start_col + i)
                 cell.fill = FILL_ANA_CARD
-                if r == 5: cell.border = Border(top=Side(style="medium", color="1F4E79"))
+                if r == 5: cell.border = Border(top=Side(style="thick", color=color))
         
-        ws.cell(row=6, column=col_idx, value=label).font = FONT_ANA_KPI_L
-        c_val = ws.cell(row=7, column=col_idx, value=val)
+        ws.cell(row=6, column=start_col, value=label).font = FONT_ANA_KPI_L
+        c_val = ws.cell(row=8, column=start_col, value=val)
         c_val.font = FONT_ANA_KPI_V
         c_val.number_format = MONEY_FORMAT
         
-        # Sous-texte dynamique pour la carte 2 (Nom de l'entreprise)
-        if label == "OFFRE LA PLUS BASSE" and company_totals:
+        if label == "MOINS DISANT" and company_totals:
             min_c = min(company_totals, key=company_totals.get)
-            ws.cell(row=8, column=col_idx, value=f"🏆 {min_c}").font = FONT_ANA_BOLD
+            ws.cell(row=9, column=start_col, value=f"🏆 {min_c.upper()}").font = FONT_ANA_BOLD
 
-    # 3. Graphique Comparatif (Style Pro)
-    # Table de données cachée (Loin à droite)
-    dsr = 100
-    ws.cell(row=dsr, column=20, value="Candidat")
-    ws.cell(row=dsr, column=21, value="HT")
-    ws.cell(row=dsr+1, column=20, value="ESTIMATION")
-    ws.cell(row=dsr+1, column=21, value=budget_ht)
+    # 3. GRAPHIQUE (B12:G24)
+    # Données graphiques cachées
+    dsr = 150
+    ws.cell(row=dsr, column=30, value="Candidat")
+    ws.cell(row=dsr, column=31, value="HT")
+    ws.cell(row=dsr+1, column=30, value="ESTIMATION")
+    ws.cell(row=dsr+1, column=31, value=budget_ht)
     curr_r = dsr + 2
     for comp, tot in company_totals.items():
-        ws.cell(row=curr_r, column=20, value=comp.upper())
-        ws.cell(row=curr_r, column=21, value=tot)
+        ws.cell(row=curr_r, column=30, value=comp)
+        ws.cell(row=curr_r, column=31, value=tot)
         curr_r += 1
-
+        
     chart = BarChart()
-    chart.type = "col"
-    chart.title = "COMPARAISON GLOBALE DU LOT (€ HT)"
-    chart.y_axis.title = "Montant en Euros"
-    chart.x_axis.title = "Entreprises"
-    chart.height = 10
-    chart.width = 25
-    
-    data = Reference(ws, min_col=21, min_row=dsr, max_row=curr_r-1)
-    cats = Reference(ws, min_col=20, min_row=dsr+1, max_row=curr_r-1)
+    chart.title = "COMPARAISON GLOBALE DU LOT"
+    chart.height = 11
+    chart.width = 28
+    data = Reference(ws, min_col=31, min_row=dsr, max_row=curr_r-1)
+    cats = Reference(ws, min_col=30, min_row=dsr+1, max_row=curr_r-1)
     chart.add_data(data, titles_from_data=True)
     chart.set_categories(cats)
     chart.legend = None
-    
-    # Style de graphique BarChart (Coloration)
-    # Le premier point (Estimation) en bleu foncé, les autres en bleu clair
-    ws.add_chart(chart, "B10")
+    ws.add_chart(chart, "B12")
 
-    # 4. Audit des Omissions (Tableau de bord Zebra)
-    ws.cell(row=28, column=2, value="⚠️ AUDIT DES OMISSIONS (Articles non chiffrés)").font = FONT_ANA_SUB
+    # --- SECTIONS COLORÉES AVEC TITRES ---
     
-    headers = ["CODE", "DÉSIGNATION ARTICLE"] + [c.upper() for c in companies]
+    # 4. AUDIT (Orange)
+    audit_y = 28
+    # Titre de section
+    for c in range(2, 10):
+        cell = ws.cell(row=audit_y, column=c)
+        cell.fill = FILL_SECTION_AUDIT
+        if c == 2:
+            cell.value = "⚠️  AUDIT DES OMISSIONS (TENSIONS SUR PRIX À 0 €)"
+            cell.font = FONT_ANA_SECTION
+            
+    header_row = audit_y + 2
+    headers = ["CODE", "DESCRIPTION DU POSTE"] + [c.upper() for c in companies]
     for i, h in enumerate(headers):
-        cell = ws.cell(row=30, column=2 + i, value=h)
+        cell = ws.cell(row=header_row, column=2+i, value=h)
         cell.font = FONT_ANA_WHITE
         cell.fill = FILL_ANA_HEADER
         cell.alignment = Alignment(horizontal="center")
         
-    om_row = 31
+    curr_row = header_row + 1
     articles = merged_df[merged_df["row_type"] == "article"]
     count = 0
     for _, row in articles.iterrows():
-        omissions = []
-        for comp in companies:
-            val = float(row.get(f"{comp}_Px_Tot_HT", 0) or 0)
-            omissions.append("MISSING" if val == 0 else "OK")
-            
+        omissions = [("MISSING" if float(row.get(f"{c}_Px_Tot_HT", 0) or 0) == 0 else "OK") for c in companies]
         if "MISSING" in omissions:
-            fill = FILL_ANA_STRIPE if count % 2 == 1 else FILL_ANA_CARD
-            ws.cell(row=om_row, column=2, value=row["Code"]).fill = fill
-            ws.cell(row=om_row, column=3, value=row["Désignation"]).fill = fill
-            for i, status in enumerate(omissions):
-                c = ws.cell(row=om_row, column=4+i, value="Oubli ?" if status == "MISSING" else "✓")
-                c.fill = fill
+            bg = FILL_ANA_STRIPE if count % 2 == 1 else FILL_ANA_CARD
+            ws.cell(row=curr_row, column=2, value=row["Code"]).fill = bg
+            ws.cell(row=curr_row, column=3, value=row["Désignation"]).fill = bg
+            for i, st in enumerate(omissions):
+                c = ws.cell(row=curr_row, column=4+i, value="Oubli ?" if st == "MISSING" else "✓")
+                c.fill = bg
                 c.alignment = Alignment(horizontal="center")
-                if status == "MISSING": c.font = Font(color="C00000", bold=True)
-            om_row += 1
+                if st == "MISSING": c.font = Font(color="C00000", bold=True)
+            curr_row += 1
             count += 1
-            if count >= 15: break # On garde l'analyse concise
+            if count >= 10: break
 
-    # 5. Top 10 des Écarts stratégiques
-    gap_start = om_row + 2
-    ws.cell(row=gap_start, column=2, value="💡 TOP 10 DES ÉCARTS À NÉGOCIER").font = FONT_ANA_SUB
-    
-    h2 = ["CODE", "POSTE STRATÉGIQUE", "ÉCART MAX (€)"]
-    for i, h in enumerate(h2):
-        cell = ws.cell(row=gap_start+2, column=2+i, value=h)
+    # 5. ÉCARTS (Jaune)
+    gap_y = curr_row + 3
+    for c in range(2, 6):
+        cell = ws.cell(row=gap_y, column=c)
+        cell.fill = FILL_SECTION_GAPS
+        if c == 2:
+            cell.value = "💡  TOP 10 DES ÉCARTS MAJEURS (LEVIERS DE NÉGOCIATION)"
+            cell.font = FONT_ANA_SECTION
+            
+    h_row = gap_y + 2
+    for i, h in enumerate(["CODE", "POSTE STRATÉGIQUE", "ÉCART MAX (€)"]):
+        cell = ws.cell(row=h_row, column=2+i, value=h)
         cell.font = FONT_ANA_WHITE
         cell.fill = FILL_ANA_HEADER
-        cell.alignment = Alignment(horizontal="center")
-
+        
     gaps = []
     for _, row in articles.iterrows():
-        budget = float(row.get("Px_Tot_HT", 0) or 0)
-        if budget <= 0: continue
-        best_comp_val = 0.0
-        for comp in companies:
-            val = float(row.get(f"{comp}_Px_Tot_HT", 0) or 0)
-            if val > 0:
-                delta = abs(val - budget)
-                if delta > best_comp_val: best_comp_val = delta
-        if best_comp_val > 0:
-            gaps.append((row["Code"], row["Désignation"], best_comp_val))
-            
+        b = float(row.get("Px_Tot_HT", 0) or 0)
+        if b <= 0: continue
+        diff = max([abs(float(row.get(f"{c}_Px_Tot_HT", 0) or 0) - b) for c in companies])
+        if diff > 0: gaps.append((row["Code"], row["Désignation"], diff))
+        
     gaps = sorted(gaps, key=lambda x: x[2], reverse=True)[:10]
     for i, (code, desig, delta) in enumerate(gaps):
-        cur_r = gap_start + 3 + i
-        fill = FILL_ANA_STRIPE if i % 2 == 1 else FILL_ANA_CARD
-        ws.cell(row=cur_r, column=2, value=code).fill = fill
-        ws.cell(row=cur_r, column=3, value=desig).fill = fill
-        c_val = ws.cell(row=cur_r, column=4, value=delta)
-        c_val.fill = fill
-        c_val.number_format = MONEY_FORMAT
-        c_val.font = FONT_ANA_BOLD
+        r = h_row + 1 + i
+        bg = FILL_ANA_STRIPE if i % 2 == 1 else FILL_ANA_CARD
+        ws.cell(row=r, column=2, value=code).fill = bg
+        ws.cell(row=r, column=3, value=desig).fill = bg
+        c_v = ws.cell(row=r, column=4, value=delta)
+        c_v.fill = bg
+        c_v.font = FONT_ANA_BOLD
+        c_v.number_format = MONEY_FORMAT
 
-    # 6. Matrice du Mieux-Disant (Final Touch)
-    matrix_start = gap_start + 15
-    ws.cell(row=matrix_start, column=2, value="🏆 SYNTHÈSE DU MIEUX-DISANT PAR SECTION").font = FONT_ANA_SUB
-    
-    h3 = ["CODE SECTION", "NOM DE L'ENTREPRISE", "MONTANT OPTIMISÉ"]
-    for i, h in enumerate(h3):
-        cell = ws.cell(row=matrix_start+2, column=2+i, value=h)
+    # 6. MATRIX (Vert)
+    mat_y = h_row + 13
+    for c in range(2, 6):
+        cell = ws.cell(row=mat_y, column=c)
+        cell.fill = FILL_SECTION_MATRIX
+        if c == 2:
+            cell.value = "🏆  SYNTHÈSE DU MIEUX-DISANT PAR SECTION"
+            cell.font = FONT_ANA_SECTION
+            
+    m_h = mat_y + 2
+    for i, h in enumerate(["SECTION", "CANDIDAT GAGNANT", "MONTANT (€ HT)"]):
+        cell = ws.cell(row=m_h, column=2+i, value=h)
         cell.font = FONT_ANA_WHITE
         cell.fill = FILL_ANA_HEADER
-        cell.alignment = Alignment(horizontal="center")
-
-    m_row = matrix_start + 3
-    for _, s_row in merged_df[merged_df["row_type"] == "section_header"].iterrows():
-        s_code = s_row["Code"]
-        s_totals = {c: float(s_row.get(f"{c}_Px_Tot_HT", 0) or 0) for c in companies}
-        valid_totals = {c: v for c, v in s_totals.items() if v > 0}
-        if valid_totals:
-            best_c = min(valid_totals, key=valid_totals.get)
-            fill = FILL_ANA_STRIPE if (m_row - matrix_start) % 2 == 0 else FILL_ANA_CARD
-            ws.cell(row=m_row, column=2, value=s_code).fill = fill
-            ws.cell(row=m_row, column=3, value=best_c).fill = fill
-            c_v = ws.cell(row=m_row, column=4, value=valid_totals[best_c])
-            c_v.fill = fill
+        
+    r_idx = m_h + 1
+    sections = merged_df[merged_df["row_type"] == "section_header"]
+    for _, s in sections.iterrows():
+        valid = {c: float(s.get(f"{c}_Px_Tot_HT", 0) or 0) for c in companies if float(s.get(f"{c}_Px_Tot_HT", 0) or 0) > 0}
+        if valid:
+            winner = min(valid, key=valid.get)
+            bg = FILL_ANA_STRIPE if (r_idx - m_h) % 2 == 0 else FILL_ANA_CARD
+            ws.cell(row=r_idx, column=2, value=s["Code"]).fill = bg
+            ws.cell(row=r_idx, column=3, value=winner).fill = bg
+            c_v = ws.cell(row=r_idx, column=4, value=valid[winner])
+            c_v.fill = bg
             c_v.number_format = MONEY_FORMAT
-            m_row += 1
+            r_idx += 1
 
 
 # ---------------------------------------------------------------------------
