@@ -331,8 +331,8 @@ def create_analysis_sheet(
         
     chart = BarChart()
     chart.title = "COMPARAISON GLOBALE DU LOT"
-    chart.height = 11
-    chart.width = 28
+    chart.height = 8.5
+    chart.width = 22
     data = Reference(ws, min_col=31, min_row=dsr, max_row=curr_r-1)
     cats = Reference(ws, min_col=30, min_row=dsr+1, max_row=curr_r-1)
     chart.add_data(data, titles_from_data=True)
@@ -343,7 +343,7 @@ def create_analysis_sheet(
     # --- SECTIONS COLORÉES AVEC TITRES ---
     
     # 4. AUDIT (Orange)
-    audit_y = 28
+    audit_y = 30
     # Titre de section
     for c in range(2, 10):
         cell = ws.cell(row=audit_y, column=c)
