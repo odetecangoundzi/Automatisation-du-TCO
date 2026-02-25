@@ -1,31 +1,32 @@
-# Utiliser une image Python officielle légère
+# Image officielle Python slim (Debian Trixie)
 FROM python:3.11-slim
 
-# Définir le répertoire de travail
+# Métadonnées
+LABEL org.opencontainers.image.title="TCO Automator" \
+      org.opencontainers.image.description="Consolidation automatique des DPGF et remplissage du TCO" \
+      org.opencontainers.image.version="2.2.0"
+
 WORKDIR /app
 
-# Installer les dépendances système nécessaires
-RUN apt-get update && apt-get install -y \
-    build-essential \
-    curl \
-    software-properties-common \
-    git \
+# curl uniquement — requis pour le HEALTHCHECK
+# (streamlit/pandas/openpyxl sont distribués sous forme de wheels, pas de compilation C)
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Copier le fichier des dépendances
+# Dépendances Python — couche séparée pour profiter du cache Docker
 COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
 
-# Installer les dépendances Python
-RUN pip3 install --no-cache-dir -r requirements.txt
-
-# Copier tout le code du projet
+# Code applicatif
 COPY . .
 
-# Exposer le port par défaut de Streamlit (8501)
 EXPOSE 8501
 
-# Santé de l'application
-HEALTHCHECK CMD curl --fail http://localhost:8501/_stcore/health
+HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
+    CMD curl --fail --silent http://localhost:8501/_stcore/health || exit 1
 
-# Lancer l'application
-ENTRYPOINT ["streamlit", "run", "app.py", "--server.port=8501", "--server.address=0.0.0.0"]
+ENTRYPOINT ["streamlit", "run", "app.py", \
+            "--server.port=8501", \
+            "--server.address=0.0.0.0", \
+            "--server.headless=true"]
