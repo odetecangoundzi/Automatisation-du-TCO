@@ -220,6 +220,14 @@ if st.session_state.step > 0:
             unsafe_allow_html=True,
         )
 
+        # Point 2 : bouton Enregistrer juste sous le nom du projet
+        if st.button("💾 Enregistrer", use_container_width=True, key="sidebar_save"):
+            ok, msg = save_project(curr_name, st.session_state)
+            if ok:
+                st.success(msg)
+            else:
+                st.error(msg)
+
         st.markdown("---")
 
         # Retour à l'accueil
@@ -519,6 +527,21 @@ if st.session_state.step >= 3:
     with cols[1]: st.metric("🏢 Entreprises", len(st.session_state.company_data))
     with cols[2]: st.metric("⚠️ Alertes",    len(st.session_state.all_alerts))
 
+    # Point 7 : résumé des anomalies par catégorie
+    all_alerts = st.session_state.all_alerts
+    if all_alerts:
+        n_err  = sum(1 for a in all_alerts if a.get("type") == "error")
+        n_warn = sum(1 for a in all_alerts if a.get("type") == "warning")
+        n_info = sum(1 for a in all_alerts if a.get("type") == "info")
+        parts  = []
+        if n_err:
+            parts.append(f"🔴 {n_err} erreur(s)")
+        if n_warn:
+            parts.append(f"🟡 {n_warn} avertissement(s)")
+        if n_info:
+            parts.append(f"🔵 {n_info} info(s)")
+        st.caption("Anomalies : " + " — ".join(parts))
+
     display_preview(merged, "TCO Final Consolidé")
 
     if st.session_state.all_alerts:
@@ -530,8 +553,19 @@ if st.session_state.step >= 3:
         st.rerun()
 
     st.divider()
-    timestamp  = datetime.now().strftime("%Y%m%d_%H%M%S")
-    filename   = f"TCO_FINAL_{timestamp}.xlsx"
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    # Point 1 : nom du fichier basé sur le lot détecté dans le template
+    _meta_info = st.session_state.tco_meta or {}
+    _lot_raw   = _meta_info.get("project_info", {}).get("lot", "") or ""
+    if not _lot_raw:
+        _lot_raw = st.session_state.get("current_project", "")
+    # Normalisation : majuscules, espaces → underscore, caractères spéciaux supprimés
+    _lot_norm = re.sub(r"[^A-Z0-9]", "_", _lot_raw.upper())
+    _lot_norm = re.sub(r"_+", "_", _lot_norm).strip("_")
+    filename  = (
+        f"TCO_FINAL_{_lot_norm}_{timestamp}.xlsx" if _lot_norm
+        else f"TCO_FINAL_{timestamp}.xlsx"
+    )
 
     # Pré-génération du buffer pour téléchargement immédiat
     try:

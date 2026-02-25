@@ -258,6 +258,38 @@ def merge_company_into_tco(
             part2 = merged_df.iloc[target_idx:]
             merged_df = pd.concat([part1, pd.DataFrame([row_data]), part2], ignore_index=True)
 
+    # ------------------------------------------------------------------
+    # Point 4 : Taux de correspondance DPGF / Template
+    # Seuil critique < 50 % → erreur bloquante (avertissement fort).
+    # Seuil partiel 50-90 % → warning.
+    # ≥ 90 % → OK, pas d'alerte de correspondance.
+    # ------------------------------------------------------------------
+    total_dpgf = len(dpgf_data)
+    if total_dpgf > 0:
+        match_rate = matched_count / total_dpgf * 100
+        unmatched  = total_dpgf - matched_count
+        if match_rate < 50:
+            msg = (
+                f"Correspondance DPGF/Template critique : {match_rate:.0f}% "
+                f"— {unmatched} codes non trouvés sur {total_dpgf}"
+            )
+            log.error(msg)
+            alerts.insert(0, {
+                "type": "error", "color": "red", "row": 0, "code": "",
+                "message": msg,
+            })
+        elif match_rate < 90:
+            msg = (
+                f"Correspondance DPGF/Template partielle : {match_rate:.0f}% "
+                f"— {unmatched} codes non trouvés sur {total_dpgf}"
+            )
+            log.warning(msg)
+            alerts.insert(0, {
+                "type": "warning", "color": "orange", "row": 0, "code": "",
+                "message": msg,
+            })
+        log.info("Match rate %s : %.1f%% (%d/%d)", company_name, match_rate, matched_count, total_dpgf)
+
     log.info(
         "Fusion terminée : %d lignes matchées, %d non trouvées",
         matched_count, len(alerts)

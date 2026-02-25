@@ -127,6 +127,28 @@ def _get_row_style(row_type: str) -> tuple[Font, PatternFill | None]:
     }.get(row_type, (FONT_DATA, None))
 
 
+def _rows_to_sum_formula(col: str, rows: list[int]) -> str:
+    """
+    Convertit une liste de numéros de lignes Excel en formule =SUM() avec plages.
+
+    Exemple : [3,4,5,7,8] → '=SUM(F3:F5,F7:F8)'
+    Jamais d'énumération de cellules individuelles : toujours des plages contiguës.
+    """
+    if not rows:
+        return "0"
+    sorted_rows = sorted(set(rows))
+    parts: list[str] = []
+    start = end = sorted_rows[0]
+    for r in sorted_rows[1:]:
+        if r == end + 1:
+            end = r
+        else:
+            parts.append(f"{col}{start}:{col}{end}" if start != end else f"{col}{start}")
+            start = end = r
+    parts.append(f"{col}{start}:{col}{end}" if start != end else f"{col}{start}")
+    return "=SUM(" + ",".join(parts) + ")"
+
+
 # ---------------------------------------------------------------------------
 # Main exporter
 # ---------------------------------------------------------------------------
@@ -261,8 +283,7 @@ def export_tco(
             # Total de la section (ligne grise)
             rows = section_articles.get(current_section_code, [])
             if rows:
-                formula = "=SUM(" + ",".join([f"F{r}" for r in rows]) + ")"
-                ws.cell(row=excel_row, column=6, value=formula)
+                ws.cell(row=excel_row, column=6, value=_rows_to_sum_formula("F", rows))
             else:
                 ws.cell(row=excel_row, column=6, value=0)
             section_total_row[current_section_code] = excel_row
@@ -281,8 +302,8 @@ def export_tco(
         elif re.search(r"montant\s+ht", desig_lower):
             # Grand Total HT
             if recap_summary_rows:
-                formula = "=SUM(" + ",".join([f"F{r}" for r in recap_summary_rows]) + ")"
-                ws.cell(row=excel_row, column=6, value=formula)
+                ws.cell(row=excel_row, column=6,
+                        value=_rows_to_sum_formula("F", recap_summary_rows))
             else:
                 ws.cell(row=excel_row, column=6, value=row.get("Px_Tot_HT"))
             ht_row_idx = excel_row
@@ -322,26 +343,30 @@ def export_tco(
             tot_col = get_column_letter(col_offset + 2)
             
             if row_type == "article":
-                ws.cell(row=excel_row, column=col_offset + 2, value=f"={qu_col}{excel_row}*{px_col}{excel_row}")
+                ws.cell(row=excel_row, column=col_offset + 2,
+                        value=f"={qu_col}{excel_row}*{px_col}{excel_row}")
             elif row_type == "recap":
                 rows = section_articles.get(current_section_code, [])
                 if rows:
-                    formula = f"=SUM(" + ",".join([f"{tot_col}{r}" for r in rows]) + ")"
-                    ws.cell(row=excel_row, column=col_offset + 2, value=formula)
+                    ws.cell(row=excel_row, column=col_offset + 2,
+                            value=_rows_to_sum_formula(tot_col, rows))
                 else:
                     ws.cell(row=excel_row, column=col_offset + 2, value=0)
             elif row_type == "recap_summary":
                 target_row = section_total_row.get(code)
                 if target_row:
-                    ws.cell(row=excel_row, column=col_offset + 2, value=f"={tot_col}{target_row}")
+                    ws.cell(row=excel_row, column=col_offset + 2,
+                            value=f"={tot_col}{target_row}")
                 else:
-                    ws.cell(row=excel_row, column=col_offset + 2, value=row.get(f"{comp}_Px_Tot_HT"))
+                    ws.cell(row=excel_row, column=col_offset + 2,
+                            value=row.get(f"{comp}_Px_Tot_HT"))
             elif re.search(r"montant\s+ht", desig_lower):
                 if recap_summary_rows:
-                    formula = f"=SUM(" + ",".join([f"{tot_col}{r}" for r in recap_summary_rows]) + ")"
-                    ws.cell(row=excel_row, column=col_offset + 2, value=formula)
+                    ws.cell(row=excel_row, column=col_offset + 2,
+                            value=_rows_to_sum_formula(tot_col, recap_summary_rows))
                 else:
-                    ws.cell(row=excel_row, column=col_offset + 2, value=row.get(f"{comp}_Px_Tot_HT"))
+                    ws.cell(row=excel_row, column=col_offset + 2,
+                            value=row.get(f"{comp}_Px_Tot_HT"))
             elif re.search(r"tva", desig_lower) and not re.search(r"ht", desig_lower):
                 if ht_row_idx is not None:
                     ws.cell(row=excel_row, column=col_offset + 2, value=f"={tot_col}{ht_row_idx}*{tva_rate}")
@@ -430,13 +455,29 @@ def export_tco(
             )
 
         if code and code in alert_by_code and row_type == "article":
+            # Détecter la sévérité maximale pour cette ligne
+            max_severity = "info"
             for alert in alert_by_code[code]:
-                alert_fill = _get_alert_fill(alert["color"])
-                if alert_fill:
+                if alert["type"] == "error":
+                    max_severity = "error"
+                    break
+                if alert["type"] == "warning":
+                    max_severity = "warning"
+            # Appliquer le fill : ligne entière pour erreur, colonnes entreprise pour warning/info
+            first_alert_fill = _get_alert_fill(
+                alert_by_code[code][0]["color"]
+            )
+            if first_alert_fill:
+                if max_severity == "error":
+                    # Mise en rouge de toute la ligne (Point 7)
+                    for c in range(1, max_col + 1):
+                        ws.cell(row=excel_row, column=c).fill = FILL_ERROR
+                else:
+                    # Warning/info : uniquement colonnes entreprise
                     comp_col = 7
                     for _ in companies:
                         for c in range(comp_col, comp_col + 4):
-                            ws.cell(row=excel_row, column=c).fill = alert_fill
+                            ws.cell(row=excel_row, column=c).fill = first_alert_fill
                         comp_col += 4
 
         excel_row += 1
@@ -451,8 +492,7 @@ def export_tco(
         if recap_row:
             ws.cell(row=sh_row, column=6, value=f"=F{recap_row}")
         elif art_rows:
-            formula = "=SUM(" + ",".join(f"F{r}" for r in art_rows) + ")"
-            ws.cell(row=sh_row, column=6, value=formula)
+            ws.cell(row=sh_row, column=6, value=_rows_to_sum_formula("F", art_rows))
 
         # Colonnes entreprises
         c_off = 7
@@ -461,8 +501,8 @@ def export_tco(
             if recap_row:
                 ws.cell(row=sh_row, column=c_off + 2, value=f"={tc}{recap_row}")
             elif art_rows:
-                formula = "=SUM(" + ",".join(f"{tc}{r}" for r in art_rows) + ")"
-                ws.cell(row=sh_row, column=c_off + 2, value=formula)
+                ws.cell(row=sh_row, column=c_off + 2,
+                        value=_rows_to_sum_formula(tc, art_rows))
             c_off += 4
 
     _auto_width(ws)

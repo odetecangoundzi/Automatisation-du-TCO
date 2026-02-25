@@ -256,6 +256,17 @@ def parse_dpgf(filepath: str) -> tuple[pd.DataFrame, list[dict]]:
             if alert:
                 alerts.append(alert)
 
+            # Point 7 : unité manquante (article avec montant mais sans unité)
+            u_str = str(u).strip() if pd.notna(u) else ""
+            if not u_str and tot_val > 0:
+                alerts.append({
+                    "type":    "warning",
+                    "color":   "orange",
+                    "row":     row_idx,
+                    "code":    code_str,
+                    "message": f"Unité manquante (Px_Tot={tot_val} €)",
+                })
+
         rows.append({
             "Code":         code_str,
             "Désignation":  desig_str,
@@ -271,6 +282,49 @@ def parse_dpgf(filepath: str) -> tuple[pd.DataFrame, list[dict]]:
         })
 
     dpgf_df = pd.DataFrame(rows)
+
+    # ------------------------------------------------------------------
+    # Point 5 : Détection et gestion des codes dupliqués dans le DPGF
+    # Option A : suffixe technique _DUPxx pour unicité, Code_source conserve l'original.
+    # La 1ère occurrence garde le code intact (matchera le TCO).
+    # Les suivantes reçoivent un suffixe et seront insérées comme nouveaux articles.
+    # ------------------------------------------------------------------
+    if not dpgf_df.empty:
+        art_mask = dpgf_df["row_type"].isin(["article", "sub_section"])
+        art_sub = dpgf_df[art_mask & (dpgf_df["Code"] != "")]
+        dup_codes = set(
+            art_sub[art_sub.duplicated(subset=["Code"], keep=False)]["Code"].unique()
+        )
+        if dup_codes:
+            # Ajouter la colonne Code_source (original) avant de modifier Code
+            dpgf_df.insert(
+                dpgf_df.columns.get_loc("Code") + 1,
+                "Code_source",
+                dpgf_df["Code"].copy(),
+            )
+            code_seen: dict[str, int] = {}
+            for idx in dpgf_df.index:
+                c = dpgf_df.at[idx, "Code"]
+                if c in dup_codes and dpgf_df.at[idx, "row_type"] in ("article", "sub_section"):
+                    code_seen[c] = code_seen.get(c, 0) + 1
+                    if code_seen[c] > 1:
+                        dpgf_df.at[idx, "Code"] = f"{c}_DUP{code_seen[c]:02d}"
+            # Générer un warning par code dupliqué
+            for dup_code in sorted(dup_codes):
+                dup_rows = dpgf_df[dpgf_df["Code_source"] == dup_code]
+                n = len(dup_rows)
+                desigs = " | ".join(
+                    dup_rows["Désignation"].astype(str).str[:30]
+                )
+                alerts.append({
+                    "type":    "warning",
+                    "color":   "orange",
+                    "row":     int(dup_rows.iloc[0].get("original_row", 0)),
+                    "code":    dup_code,
+                    "message": f"Code dupliqué ({n}×) — {desigs}",
+                })
+                log.warning("Code dupliqué %s (%d occurrences)", dup_code, n)
+
     log.info(
         "DPGF parsé : %d lignes, %d alertes",
         len(dpgf_df), len(alerts),
