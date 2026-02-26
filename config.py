@@ -4,7 +4,6 @@ config.py — Configuration centralisée du Export du TCO.
 ARCH-3 : Toutes les constantes métier et techniques sont ici.
 Modifier ce fichier pour adapter l'application à votre contexte.
 Les valeurs peuvent être surchargées via un fichier .env (voir .env.example).
-# Trigger CI: test-run-001
 """
 
 import os
@@ -70,7 +69,7 @@ LOG_LEVEL = "INFO"  # DEBUG | INFO | WARNING | ERROR
 # ---------------------------------------------------------------------------
 
 APP_TITLE = "Export du TCO"
-APP_VERSION = "2.1.0"
+APP_VERSION = "2.2.0"
 APP_ICON = "📊"
 
 # Mode administrateur — active les commandes sensibles (arrêt serveur, etc.)

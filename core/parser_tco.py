@@ -9,12 +9,11 @@ en se basant sur la colonne Entete (col M).
 
 from __future__ import annotations
 
-import os
 from decimal import Decimal
 
 import pandas as pd
 
-from core.utils import classify_row, find_column_index, find_header_row
+from core.utils import classify_row, find_column_index, open_excel_file
 from logger import get_logger
 
 log = get_logger(__name__)
@@ -76,59 +75,17 @@ def parse_tco(filepath: str) -> tuple[pd.DataFrame, dict]:
     """
     log.info("Lecture TCO : %s", filepath)
 
-    ext = os.path.splitext(filepath)[1].lower()
-    engine = None
-    if ext == ".xls":
-        engine = "xlrd"
-    elif ext == ".xlsb":
-        engine = "pyxlsb"
-    elif ext in [".xlsx", ".xlsm"]:
-        engine = "openpyxl"
-
-    # Robustesse XLSX : data_only=True pour lire les valeurs cachées au lieu
-    # du texte de la formule (ex: évite que "=C5*E5" arrive dans to_decimal)
-    _engine_kwargs = {"data_only": True} if engine == "openpyxl" else {}
-
     try:
-        # Détection de la feuille de données (même logique que parser_dpgf)
-        xl_file = pd.ExcelFile(filepath, engine=engine)
-        all_sheets = xl_file.sheet_names
-        sheet_name = all_sheets[0]
-
-        for sn in all_sheets:
-            df_probe = pd.read_excel(
-                filepath, engine=engine, header=None, sheet_name=sn, engine_kwargs=_engine_kwargs
-            )
-            try:
-                find_header_row(df_probe)
-                sheet_name = sn
-                break
-            except ValueError:
-                continue
-
-        if sheet_name != all_sheets[0]:
-            log.info(
-                "Feuille TCO détectée : '%s' (feuille 0='%s' ignorée)", sheet_name, all_sheets[0]
-            )
-
-        df_raw = pd.read_excel(
-            filepath,
-            engine=engine,
-            header=None,
-            sheet_name=sheet_name,
-            engine_kwargs=_engine_kwargs,
-        )
-        header_row_idx = find_header_row(df_raw)
+        # open_excel_file : détecte engine, feuille et en-tête en un seul appel
+        # (2 lectures au lieu de 3 — le probe est réutilisé comme df_raw)
+        xl_file, sheet_name, df_raw, header_row_idx, _engine_kwargs = open_excel_file(filepath)
 
         project_info = _extract_project_info(df_raw, header_row_idx)
 
-        # Re-lecture avec le bon header
-        df_data = pd.read_excel(
-            filepath,
-            engine=engine,
+        # Lecture finale avec skiprows=header_row_idx (1 seule lecture supplémentaire)
+        df_data = xl_file.parse(
+            sheet_name,
             skiprows=header_row_idx,
-            sheet_name=sheet_name,
-            engine_kwargs=_engine_kwargs,
             dtype=object,  # preserve codes comme strings
         )
         log.debug("En-tête trouvée index %d | projet=%s", header_row_idx, project_info)

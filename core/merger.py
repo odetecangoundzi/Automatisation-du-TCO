@@ -99,6 +99,43 @@ def _get_children_total(
     return total.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
 
+def _build_new_row(
+    code: str,
+    dpgf_row: "pd.Series",
+    merged_df: "pd.DataFrame",
+    col_qu: str,
+    col_pu: str,
+    col_tot: str,
+    col_com: str,
+    parent_code: str,
+    original_row_idx: int,
+) -> dict:
+    """
+    Construit le dict d'une nouvelle ligne article à insérer dans le TCO.
+    Utilisé lors de l'insertion directe et du fallback hiérarchique (dédupliqué).
+    """
+    new_row: dict = {
+        "Code": code,
+        "Désignation": dpgf_row["Désignation"],
+        "Qu.": None,
+        "U": dpgf_row.get("U", ""),
+        "Px_U_HT": None,
+        "Px_Tot_HT": None,
+        "Entete": dpgf_row.get("Entete", "Ouv_Art"),
+        "row_type": "article",
+        "original_row": original_row_idx,
+        "parent_code": parent_code,
+    }
+    for col in merged_df.columns:
+        if any(suffix in col for suffix in ["_Qu.", "_Px_U_HT", "_Px_Tot_HT", "_Commentaire"]):
+            new_row[col] = None
+    new_row[col_qu] = dpgf_row["Qu."]
+    new_row[col_pu] = dpgf_row["Px_U_HT"]
+    new_row[col_tot] = dpgf_row["Px_Tot_HT"]
+    new_row[col_com] = dpgf_row.get("Commentaire", "")
+    return new_row
+
+
 def _apply_total_lines(
     df: pd.DataFrame,
     total_col: str,
@@ -253,28 +290,11 @@ def merge_company_into_tco(
                     row["row_type"] == "recap"
                     and _normalize_code(row.get("parent_code", "")) == parent_code
                 ):
-                    new_row = {
-                        "Code": code,
-                        "Désignation": dpgf_row["Désignation"],
-                        "Qu.": None,
-                        "U": dpgf_row.get("U", ""),
-                        "Px_U_HT": None,
-                        "Px_Tot_HT": None,
-                        "Entete": dpgf_row.get("Entete", "Ouv_Art"),
-                        "row_type": "article",
-                        "original_row": idx,
-                        "parent_code": parent_code,
-                    }
-                    for col in merged_df.columns:
-                        if any(
-                            suffix in col
-                            for suffix in ["_Qu.", "_Px_U_HT", "_Px_Tot_HT", "_Commentaire"]
-                        ):
-                            new_row[col] = None
-                    new_row[col_qu] = dpgf_row["Qu."]
-                    new_row[col_pu] = dpgf_row["Px_U_HT"]
-                    new_row[col_tot] = dpgf_row["Px_Tot_HT"]
-                    new_row[col_com] = dpgf_row.get("Commentaire", "")
+                    new_row = _build_new_row(
+                        code, dpgf_row, merged_df,
+                        col_qu, col_pu, col_tot, col_com,
+                        parent_code, int(idx),
+                    )
                     insertions.append((int(idx), len(insertions), new_row))
                     matched_count += 1
                     found_insertion = True
@@ -296,28 +316,11 @@ def merge_company_into_tco(
                             row["row_type"] == "recap"
                             and _normalize_code(row.get("parent_code", "")) == fallback_parent
                         ):
-                            new_row = {
-                                "Code": code,
-                                "Désignation": dpgf_row["Désignation"],
-                                "Qu.": None,
-                                "U": dpgf_row.get("U", ""),
-                                "Px_U_HT": None,
-                                "Px_Tot_HT": None,
-                                "Entete": dpgf_row.get("Entete", "Ouv_Art"),
-                                "row_type": "article",
-                                "original_row": idx,
-                                "parent_code": fallback_parent,
-                            }
-                            for col in merged_df.columns:
-                                if any(
-                                    suffix in col
-                                    for suffix in ["_Qu.", "_Px_U_HT", "_Px_Tot_HT", "_Commentaire"]
-                                ):
-                                    new_row[col] = None
-                            new_row[col_qu] = dpgf_row["Qu."]
-                            new_row[col_pu] = dpgf_row["Px_U_HT"]
-                            new_row[col_tot] = dpgf_row["Px_Tot_HT"]
-                            new_row[col_com] = dpgf_row.get("Commentaire", "")
+                            new_row = _build_new_row(
+                                code, dpgf_row, merged_df,
+                                col_qu, col_pu, col_tot, col_com,
+                                fallback_parent, int(idx),
+                            )
                             insertions.append((int(idx), len(insertions), new_row))
                             matched_count += 1
                             found_insertion = True
@@ -475,12 +478,34 @@ def compute_section_totals(
 
     section_header_index = _build_section_index(df)
 
-    # Passe 1 : totaux des section_headers
+    # PERF-7 : Précalcul des sommes par préfixe parent en un seul passage O(N*depth)
+    # Évite O(S×N) itérations (une par section_header) de l'ancien _get_children_total.
+    parent_sums: dict[str, Decimal] = defaultdict(lambda: Decimal("0.0"))
+    for code, idx_list in children_index.items():
+        for idx in idx_list:
+            row = df.loc[idx]
+            if row["row_type"] not in ("article", "sub_section"):
+                continue
+            val = row.get(total_col)
+            if val is None:
+                continue
+            try:
+                v = val if isinstance(val, Decimal) else Decimal(str(val))
+            except (ValueError, TypeError, ArithmeticError):  # noqa: S110
+                continue
+            # Propager vers tous les préfixes ancêtres (01.1.2 → 01.1 ET 01)
+            parts = code.split(".")
+            for i in range(1, len(parts)):
+                parent_sums[".".join(parts[:i])] += v
+
+    # Passe 1 : totaux des section_headers (lookup O(1))
     for idx, row in df.iterrows():
         code = _normalize_code(row["Code"])
         if not code or row["row_type"] != "section_header":
             continue
-        total = _get_children_total(df, code, total_col, children_index)
+        total = parent_sums.get(code, Decimal("0.0")).quantize(
+            Decimal("0.01"), rounding=ROUND_HALF_UP
+        )
         df.at[idx, total_col] = total
 
     # Passe 2 : propager vers les lignes recap

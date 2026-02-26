@@ -2,18 +2,83 @@
 utils.py — Fonctions partagées entre les parsers TCO et DPGF.
 
 Centralise :
-  - find_header_row  : détecte la ligne d'en-tête Code|Désignation
+  - find_header_row   : détecte la ligne d'en-tête Code|Désignation
   - find_column_index : recherche de colonne par mots-clés
-  - classify_row     : classifie chaque ligne selon la colonne Entete (col M)
+  - classify_row      : classifie chaque ligne selon la colonne Entete (col M)
+  - open_excel_file   : ouvre un fichier Excel, détecte la feuille et l'en-tête
 """
 
 from __future__ import annotations
+
+import os
 
 import pandas as pd
 
 # Sentinel retourné par find_column_index quand la colonne n'est pas trouvée
 # et qu'aucun default_idx n'est fourni.
 COL_NOT_FOUND = -1
+
+
+def open_excel_file(
+    filepath: str,
+) -> tuple[pd.ExcelFile, str, pd.DataFrame, int, dict]:
+    """
+    Ouvre un fichier Excel, détecte la bonne feuille et la ligne d'en-tête.
+
+    Factorise la logique commune à parser_tco et parser_dpgf :
+      1. Détermine le moteur (openpyxl / xlrd / pyxlsb) selon l'extension
+      2. Ouvre le fichier une seule fois (pd.ExcelFile)
+      3. Sonde chaque feuille pour trouver celle avec un en-tête valide
+      4. Réutilise le DataFrame probe (évite une 2ᵉ lecture disque)
+      5. Fait une unique lecture finale avec skiprows pour df_data
+
+    Returns:
+        xl_file        : pd.ExcelFile ouvert (à fermer par l'appelant)
+        sheet_name     : nom de la feuille retenue
+        df_raw         : DataFrame header=None de la feuille (réutilisé depuis le probe)
+        header_row_idx : index (0-based) de la ligne d'en-tête dans df_raw
+        engine_kwargs  : kwargs moteur (ex: {"data_only": True} pour openpyxl)
+
+    Raises:
+        ValueError si aucune feuille valide n'est trouvée.
+    """
+    ext = os.path.splitext(filepath)[1].lower()
+    engine: str | None = None
+    if ext == ".xls":
+        engine = "xlrd"
+    elif ext == ".xlsb":
+        engine = "pyxlsb"
+    elif ext in (".xlsx", ".xlsm"):
+        engine = "openpyxl"
+
+    # data_only=True : lit les valeurs calculées des formules (évite "=C5*E5" dans les cellules)
+    engine_kwargs: dict = {"data_only": True} if engine == "openpyxl" else {}
+
+    # Ouverture unique — les feuilles sont listées sans tout lire
+    xl_file = pd.ExcelFile(filepath, engine=engine, engine_kwargs=engine_kwargs)
+    all_sheets = xl_file.sheet_names
+
+    sheet_name = all_sheets[0]
+    df_raw: pd.DataFrame | None = None
+
+    # Sondage : trouver la feuille avec un en-tête Code|Désignation valide
+    for sn in all_sheets:
+        df_probe = xl_file.parse(sn, header=None)
+        try:
+            find_header_row(df_probe)
+            sheet_name = sn
+            df_raw = df_probe  # Réutilisation : évite une 2ᵉ lecture
+            break
+        except ValueError:
+            continue
+
+    if df_raw is None:
+        # Aucune feuille avec en-tête valide — on garde la première et on laisse
+        # find_header_row lever l'erreur avec un message clair
+        df_raw = xl_file.parse(all_sheets[0], header=None)
+
+    header_row_idx = find_header_row(df_raw)
+    return xl_file, sheet_name, df_raw, header_row_idx, engine_kwargs
 
 
 def find_header_row(df: pd.DataFrame, max_search: int = 40) -> int:

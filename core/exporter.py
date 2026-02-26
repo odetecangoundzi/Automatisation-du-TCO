@@ -120,8 +120,6 @@ THIN_BORDER = Border(
     top=Side(style="thin"),
     bottom=Side(style="thin"),
 )
-THICK_TOP_BORDER = THIN_BORDER  # référence : uniquement thin, pas de medium
-
 # Formats numériques — format exact de la référence
 MONEY_FORMAT = r"###,###,###,##0.00\ \€;\-###,###,###,##0.00\ \€;"
 QTY_FORMAT = r"###,###,###,##0.00;\-###,###,###,##0.00;"
@@ -849,12 +847,7 @@ def export_tco(
             if re.search(r"\d[A-Z]+$", code):
                 font = FONT_ALTERNATIVE
 
-        # Bordure supérieure épaisse pour les lignes structurelles
-        _border = (
-            THICK_TOP_BORDER
-            if row_type in ("section_header", "recap", "recap_summary", "total_line")
-            else THIN_BORDER
-        )
+        _border = THIN_BORDER
 
         for c in range(1, max_col + 1):
             cell = ws.cell(row=excel_row, column=c)

@@ -24,6 +24,7 @@ Corrections production :
   ARCH-6 : persistence extraite dans services/persistence.py
 """
 
+import html as html_mod
 import os
 import re
 import signal
@@ -44,10 +45,11 @@ from config import (
     MAX_FILE_SIZE_MB,
     PROJECTS_DIR,
     TVA_DEFAULT,
+    TVA_OPTIONS,
     UPLOAD_DIR,
 )
 from core.exporter import export_tco
-from core.merger import compute_section_totals, merge_all_companies
+from core.merger import compute_section_totals, merge_all_companies, merge_company_into_tco
 from core.parser_dpgf import parse_dpgf
 from core.parser_tco import parse_tco
 from logger import get_logger
@@ -97,7 +99,10 @@ for k, v in defaults.items():
 
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 os.makedirs(PROJECTS_DIR, exist_ok=True)
-COMPANY_PATTERN = re.compile(r"^[A-Za-zÀ-ÖØ-öø-ÿ0-9 \-_&'\.]+$")
+# APP-1 : & et ' retirés — ils peuvent servir à s'échapper de contextes HTML/SQL
+COMPANY_PATTERN = re.compile(r"^[A-Za-zÀ-ÖØ-öø-ÿ0-9 \-_.()]+$")
+# Extensions sans le point, pour le paramètre type= des widgets file_uploader Streamlit
+_UPLOADER_TYPES = [ext.lstrip(".") for ext in ALLOWED_EXTENSIONS]
 
 
 # ---------------------------------------------------------------------------
@@ -143,19 +148,49 @@ def _validate_company_name(name):
     return name, None
 
 
-def rebuild_merged_tco(tva_rate=TVA_DEFAULT):
-    """Reconstruit le TCO fusionné depuis l'état de session.
-    Délègue la logique métier à merge_all_companies (core/merger.py).
+def rebuild_merged_tco(tva_rate=TVA_DEFAULT, new_companies: list[str] | None = None):
+    """Reconstruit ou met à jour le TCO fusionné.
+
+    Si new_companies est fourni ET que merged_df existe déjà,
+    seules ces nouvelles entreprises sont ajoutées (fusion incrémentale O(1)
+    au lieu de tout refusionner depuis zéro).
+    Si new_companies est None ou merged_df absent, reconstruction complète.
     """
     if st.session_state.tco_df is None:
         return
-    merged_df, all_alerts = merge_all_companies(
-        st.session_state.tco_df,
-        st.session_state.company_data,
-        tva_rate=tva_rate,
-    )
-    st.session_state.merged_df = merged_df
-    st.session_state.all_alerts = all_alerts
+
+    if new_companies and st.session_state.merged_df is not None:
+        # Fusion incrémentale : ajoute uniquement les nouvelles entreprises
+        merged = st.session_state.merged_df.copy()
+        all_alerts = list(st.session_state.get("all_alerts", []))
+        for comp_name in new_companies:
+            comp_data = st.session_state.company_data[comp_name]
+            merged, merge_alerts = merge_company_into_tco(
+                merged, comp_data["dpgf_df"], comp_name, tva_rate=tva_rate
+            )
+            for alert in comp_data.get("parse_alerts", []):
+                alert["company"] = comp_name
+            for alert in merge_alerts:
+                alert["company"] = comp_name
+            all_alerts.extend(comp_data.get("parse_alerts", []))
+            all_alerts.extend(merge_alerts)
+        st.session_state.merged_df = merged
+        st.session_state.all_alerts = all_alerts
+    else:
+        # Reconstruction complète depuis le TCO de base
+        merged_df, all_alerts = merge_all_companies(
+            st.session_state.tco_df,
+            st.session_state.company_data,
+            tva_rate=tva_rate,
+        )
+        st.session_state.merged_df = merged_df
+        st.session_state.all_alerts = all_alerts
+
+
+@st.cache_data(ttl=5)
+def _cached_list_projects() -> list[str]:
+    """Liste des projets avec cache TTL=5 s pour éviter le scan disque à chaque rerun."""
+    return list_projects()
 
 
 def display_alerts(alerts, title="Alertes"):
@@ -210,7 +245,7 @@ if st.session_state.step > 0:
             f"color: white; padding: 12px 16px; border-radius: 10px;"
             f"font-weight: 600; font-size: 0.95rem; word-break: break-word;"
             f"margin-bottom: 0.5rem;'>"
-            f"📁 {curr_name}</div>",
+            f"📁 {html_mod.escape(curr_name)}</div>",
             unsafe_allow_html=True,
         )
 
@@ -218,6 +253,7 @@ if st.session_state.step > 0:
         if st.button("💾 Enregistrer", use_container_width=True, key="sidebar_save"):
             ok, msg = save_project(curr_name, st.session_state)
             if ok:
+                _cached_list_projects.clear()
                 st.success(msg)
             else:
                 st.error(msg)
@@ -316,7 +352,7 @@ if st.session_state.step == 0:
                 unsafe_allow_html=True,
             )
 
-            projects = list_projects()
+            projects = _cached_list_projects()
             if projects:
                 for p in projects:
                     rcol_name, rcol_del = st.columns([7, 1])
@@ -334,6 +370,7 @@ if st.session_state.step == 0:
                     with rcol_del:
                         if st.button("🗑️", key=f"landing_del_{p}", help=f"Supprimer {p}"):
                             if delete_project(p):
+                                _cached_list_projects.clear()
                                 st.rerun()
             else:
                 st.caption("Aucun projet sauvegardé pour le moment.")
@@ -345,7 +382,7 @@ if st.session_state.step == 0:
 
 if st.session_state.step > 0:
     st.markdown(
-        f"<h1 class='main-title' style='font-size: 1.8rem; text-align: left;'>{APP_TITLE} <span style='color: var(--text-muted); font-size: 1.2rem; font-weight: 400;'>| {st.session_state.get('current_project', 'Sans titre')}</span></h1>",
+        f"<h1 class='main-title' style='font-size: 1.8rem; text-align: left;'>{html_mod.escape(APP_TITLE)} <span style='color: var(--text-muted); font-size: 1.2rem; font-weight: 400;'>| {html_mod.escape(st.session_state.get('current_project', 'Sans titre'))}</span></h1>",
         unsafe_allow_html=True,
     )
     st.divider()
@@ -366,7 +403,7 @@ if st.session_state.step >= 1:
 
     tco_file = st.file_uploader(
         "Charger Le DPGF Modèle",
-        type=["xlsx"],
+        type=_UPLOADER_TYPES,
         key="tco_upload",
         help="Fichier DPGF LOT servant de base",
         label_visibility="visible",
@@ -403,6 +440,25 @@ if st.session_state.step >= 1:
                     _cleanup_file(path)
 
     if st.session_state.tco_df is not None:
+        # UX-1 : Sélecteur TVA — affecte les calculs HT/TVA/TTC de tout le projet
+        tva_labels = list(TVA_OPTIONS.keys())
+        current_tva_label = next(
+            (k for k, v in TVA_OPTIONS.items() if v == st.session_state.tva_rate),
+            tva_labels[-1],
+        )
+        selected_tva_label = st.selectbox(
+            "Taux de TVA applicable",
+            options=tva_labels,
+            index=tva_labels.index(current_tva_label),
+            help="5,5 % — rénovation résidentielle | 10 % — rénovation | 20 % — neuf/défaut",
+        )
+        new_tva = TVA_OPTIONS[selected_tva_label]
+        if new_tva != st.session_state.tva_rate:
+            st.session_state.tva_rate = new_tva
+            if st.session_state.company_data:
+                rebuild_merged_tco(new_tva)
+            st.rerun()
+
         if st.session_state.step == 1:
             if st.button("➡️ Passer à l'étape suivante", type="primary"):
                 st.session_state.step = 2
@@ -462,9 +518,9 @@ if st.session_state.step >= 2:
             col_inf, col_btn = st.columns([4, 1])
             with col_inf:
                 st.markdown(
-                    f"<div class='company-card'>🏢 <b>{comp_name}</b> — "
+                    f"<div class='company-card'>🏢 <b>{html_mod.escape(comp_name)}</b> — "
                     f"{n_art} articles, {n_alrt} alerte(s) "
-                    f"<i>({comp['filename']})</i></div>",
+                    f"<i>({html_mod.escape(comp['filename'])})</i></div>",
                     unsafe_allow_html=True,
                 )
             with col_btn:
@@ -483,10 +539,10 @@ if st.session_state.step >= 2:
         # fichier précédent en mémoire et ignore un re-upload du même fichier)
         dpgf_files = st.file_uploader(
             "Importer un ou plusieurs DPGF entreprise",
-            type=["xlsx"],
+            type=_UPLOADER_TYPES,
             key=f"multi_dpgf_upload_{st.session_state.upload_counter}",
             accept_multiple_files=True,
-            help="Sélectionnez tous les fichiers DPGF des entreprises à fusionner (Format .xlsx)",
+            help="Sélectionnez tous les fichiers DPGF des entreprises à fusionner",
         )
 
         if dpgf_files:
@@ -496,6 +552,7 @@ if st.session_state.step >= 2:
 
             if new_files:
                 success_count = 0
+                added_companies: list[str] = []
                 for dpgf_file in new_files:
                     filename_clean = os.path.splitext(dpgf_file.name)[0]
                     company_name = (
@@ -513,6 +570,7 @@ if st.session_state.step >= 2:
                                     "filename": dpgf_file.name,
                                     "n_articles": int((dpgf_df["row_type"] == "article").sum()),
                                 }
+                                added_companies.append(company_name)
                                 success_count += 1
                             except Exception as e:
                                 log.error("Erreur fusion %s", company_name, exc_info=True)
@@ -521,7 +579,8 @@ if st.session_state.step >= 2:
                                 _cleanup_file(path)
 
                 if success_count > 0:
-                    rebuild_merged_tco(st.session_state.tva_rate)
+                    # Fusion incrémentale : n'ajoute que les nouvelles entreprises
+                    rebuild_merged_tco(st.session_state.tva_rate, new_companies=added_companies)
                     if "export_buffer" in st.session_state:
                         del st.session_state.export_buffer
                     st.session_state.step = 3

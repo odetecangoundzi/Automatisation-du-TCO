@@ -8,14 +8,13 @@ Utilise la colonne Entete (col M) pour classifier chaque ligne.
 
 from __future__ import annotations
 
-import os
 import re
 from decimal import ROUND_HALF_UP, Decimal
 
 import pandas as pd
 
 from config import TOTAL_TOLERANCE_ABS, TOTAL_TOLERANCE_REL
-from core.utils import classify_row, find_column_index, find_header_row
+from core.utils import classify_row, find_column_index, open_excel_file
 from logger import get_logger
 
 log = get_logger(__name__)
@@ -78,6 +77,11 @@ def _clean_numeric(value: int | float | str | None) -> tuple[Decimal, str]:
     text = str(value).strip()
     if not text:
         return Decimal("0.0"), ""
+
+    # Limite de longueur pour éviter ReDoS et surcharge mémoire
+    if len(text) > 500:
+        log.warning("Valeur trop longue (%d chars) tronquée à 500", len(text))
+        text = text[:500]
 
     text_lower = text.lower().strip()
     for keyword, abbrev in KEYWORDS.items():
@@ -164,60 +168,15 @@ def parse_dpgf(filepath: str) -> tuple[pd.DataFrame, list[dict]]:
     """
     log.info("Lecture DPGF : %s", filepath)
 
-    ext = os.path.splitext(filepath)[1].lower()
-    engine = None
-    if ext == ".xls":
-        engine = "xlrd"
-    elif ext == ".xlsb":
-        engine = "pyxlsb"
-    elif ext in [".xlsx", ".xlsm"]:
-        engine = "openpyxl"
-
-    # Robustesse XLSX : data_only=True pour lire les valeurs cachées au lieu
-    # du texte de la formule (ex: évite que "=C5*E5" arrive dans _clean_numeric)
-    _engine_kwargs = {"data_only": True} if engine == "openpyxl" else {}
-
     try:
-        # Détection de la feuille de données : certains DPGF ont une feuille décorative
-        # (ex: "PAGE DE GARDE") en position 0 — on scanne toutes les feuilles.
-        xl_file = pd.ExcelFile(filepath, engine=engine)
-        all_sheets = xl_file.sheet_names
-        sheet_name = all_sheets[0]  # défaut : première feuille
+        # open_excel_file : détecte engine, feuille et en-tête en un seul appel
+        # (2 lectures au lieu de 3 — le probe est réutilisé comme df_raw)
+        xl_file, sheet_name, _df_raw, header_row_idx, _engine_kwargs = open_excel_file(filepath)
 
-        for sn in all_sheets:
-            df_probe = pd.read_excel(
-                filepath, engine=engine, header=None, sheet_name=sn, engine_kwargs=_engine_kwargs
-            )
-            try:
-                find_header_row(df_probe)
-                sheet_name = sn
-                break
-            except ValueError:
-                continue  # cette feuille n'a pas d'en-tête valide
-
-        if sheet_name != all_sheets[0]:
-            log.info(
-                "Feuille de données détectée : '%s' (feuille 0='%s' ignorée)",
-                sheet_name,
-                all_sheets[0],
-            )
-
-        df_raw = pd.read_excel(
-            filepath,
-            engine=engine,
-            header=None,
-            sheet_name=sheet_name,
-            engine_kwargs=_engine_kwargs,
-        )
-        header_row_idx = find_header_row(df_raw)
-
-        # Re-lecture avec le bon header
-        df_data = pd.read_excel(
-            filepath,
-            engine=engine,
+        # Lecture finale avec skiprows=header_row_idx (1 seule lecture supplémentaire)
+        df_data = xl_file.parse(
+            sheet_name,
             skiprows=header_row_idx,
-            sheet_name=sheet_name,
-            engine_kwargs=_engine_kwargs,
             dtype=object,  # preserve codes comme strings
         )
     except Exception as e:

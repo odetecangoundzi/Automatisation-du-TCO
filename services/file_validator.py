@@ -5,7 +5,9 @@ Vérifie : extension, taille, magic bytes (ZIP/XLSX), structure interne.
 """
 
 import os
+import zipfile
 
+from config import ALLOWED_EXTENSIONS
 from logger import get_logger
 
 log = get_logger(__name__)
@@ -14,7 +16,7 @@ log = get_logger(__name__)
 ZIP_MAGIC = b"PK\x03\x04"
 XLS_MAGIC = b"\xd0\xcf\x11\xe0"
 
-ALLOWED_EXTENSIONS: set[str] = {".xlsx", ".xlsm", ".xls", ".xlsb"}
+# ALLOWED_EXTENSIONS importé depuis config.py (source unique de vérité)
 
 
 def validate_extension(filename: str, allowed: set[str] | None = None) -> tuple[bool, str]:
@@ -57,6 +59,60 @@ def validate_magic_bytes(uploaded_file) -> tuple[bool, str]:
         return True, ""
 
     return False, "Le contenu du fichier ne correspond pas à un fichier Excel valide."
+
+
+# Ratio max décompressé/compressé autorisé (protection ZIP bomb)
+_ZIP_BOMB_RATIO = 100
+# Taille max décompressée absolue : 200 MB
+_ZIP_UNCOMPRESSED_MAX = 200 * 1024 * 1024
+
+
+def validate_zip_bomb(uploaded_file) -> tuple[bool, str]:
+    """
+    Vérifie que le fichier ZIP (XLSX/XLSM/XLSB) n'est pas une ZIP bomb.
+
+    Calcule le ratio taille_compressée / taille_décompressée.
+    Refuse si le ratio > 100 ou si la taille décompressée > 200 MB.
+
+    Args:
+        uploaded_file: objet fichier avec .read() et .seek()
+
+    Returns:
+        (is_valid, error_message)
+    """
+    try:
+        uploaded_file.seek(0)
+        with zipfile.ZipFile(uploaded_file) as zf:
+            uncompressed_total = sum(info.file_size for info in zf.infolist())
+            compressed_total = sum(info.compress_size for info in zf.infolist())
+        uploaded_file.seek(0)
+
+        if uncompressed_total > _ZIP_UNCOMPRESSED_MAX:
+            log.warning(
+                "ZIP bomb suspectée : taille décompressée %d MB > %d MB",
+                uncompressed_total // (1024 * 1024),
+                _ZIP_UNCOMPRESSED_MAX // (1024 * 1024),
+            )
+            return False, "Le fichier Excel semble corrompu ou anormalement compressé."
+
+        if compressed_total > 0:
+            ratio = uncompressed_total / compressed_total
+            if ratio > _ZIP_BOMB_RATIO:
+                log.warning(
+                    "ZIP bomb suspectée : ratio compression %.1f > %d",
+                    ratio,
+                    _ZIP_BOMB_RATIO,
+                )
+                return False, "Le fichier Excel semble corrompu ou anormalement compressé."
+
+    except zipfile.BadZipFile:
+        # Pas un ZIP valide — déjà géré par validate_magic_bytes
+        uploaded_file.seek(0)
+    except Exception as e:
+        log.warning("Erreur analyse ZIP : %s", type(e).__name__)
+        uploaded_file.seek(0)
+
+    return True, ""
 
 
 def validate_excel_structure(uploaded_file) -> tuple[bool, str]:

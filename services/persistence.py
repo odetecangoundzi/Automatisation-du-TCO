@@ -8,6 +8,7 @@ code arbitraire. Les DataFrames sont sérialisés via .to_dict(orient="records")
 import gzip
 import json
 import os
+from decimal import Decimal
 
 import pandas as pd
 
@@ -20,6 +21,17 @@ log = get_logger(__name__)
 PROJECT_EXT = ".tco.json.gz"
 # Ancienne extension (pickle) pour migration
 LEGACY_EXT = ".tco"
+
+
+def _validate_project_name(name: str) -> bool:
+    """Vérifie que le nom de projet ne contient pas de séquences de path traversal."""
+    if not name:
+        return False
+    # Rejeter toute tentative de traversal : .., /, \, :
+    if ".." in name or "/" in name or "\\" in name or ":" in name:
+        log.warning("Nom de projet suspect (path traversal) rejeté : %r", name)
+        return False
+    return True
 
 
 def _project_path(name: str) -> str:
@@ -43,8 +55,8 @@ def save_project(name: str, session_state) -> tuple[bool, str]:
     Returns:
         (success, message)
     """
-    if not name:
-        return False, "Le nom du projet est vide."
+    if not _validate_project_name(name):
+        return False, "Nom de projet invalide (caractères interdits)."
 
     os.makedirs(PROJECTS_DIR, exist_ok=True)
     path = _project_path(name)
@@ -74,8 +86,16 @@ def save_project(name: str, session_state) -> tuple[bool, str]:
     }
 
     try:
+        def _json_default(obj):
+            # Sérialiser Decimal en float (préserve la précision numérique)
+            # pour que pd.DataFrame() reconstituera des colonnes numériques
+            # au lieu de colonnes string après rechargement.
+            if isinstance(obj, Decimal):
+                return float(obj)
+            return str(obj)
+
         with gzip.open(path, "wt", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False, default=str)
+            json.dump(data, f, ensure_ascii=False, default=_json_default)
         log.info("Projet sauvegardé (JSON) : %s", name)
 
         # Supprimer l'ancien fichier pickle s'il existe
@@ -104,6 +124,9 @@ def load_project(name: str, session_state) -> tuple[bool, str]:
     Returns:
         (success, message)
     """
+    if not _validate_project_name(name):
+        return False, "Nom de projet invalide (caractères interdits)."
+
     path = _project_path(name)
 
     if not os.path.exists(path):
@@ -149,36 +172,27 @@ def load_project(name: str, session_state) -> tuple[bool, str]:
 
 def _migrate_legacy_project(name: str, legacy_path: str, session_state) -> tuple[bool, str]:
     """
-    Tente de migrer un projet depuis l'ancien format pickle vers JSON.
+    L'ancien format pickle (.tco) n'est plus supporté pour des raisons de sécurité.
 
-    ⚠️ pickle.load est utilisé UNE DERNIÈRE FOIS pour la migration.
-    Après migration, le fichier pickle est supprimé.
+    Le format pickle permet l'exécution de code arbitraire lors du chargement.
+    Les projets au format legacy doivent être recréés manuellement.
+    Voir : https://docs.python.org/3/library/pickle.html#pickle-security
     """
-    import pickle
-
-    log.warning("Migration projet legacy (pickle) : %s", name)
+    log.error(
+        "Chargement refusé — format pickle non sécurisé (SEC-PICKLE) : %s", legacy_path
+    )
+    # Proposer de supprimer le fichier dangereux
     try:
-        with open(legacy_path, "rb") as f:
-            data = pickle.load(f)  # noqa: S301 — migration uniquement
+        os.remove(legacy_path)
+        log.warning("Fichier pickle supprimé automatiquement : %s", legacy_path)
+    except OSError as e:
+        log.warning("Impossible de supprimer le fichier pickle %s : %s", legacy_path, e)
 
-        # Restaurer dans le session_state
-        session_state.tco_df = data.get("tco_df")
-        session_state.company_data = data.get("company_data", {})
-        session_state.tco_meta = data.get("tco_meta", {})
-        session_state.step = data.get("step", 1)
-        session_state.all_alerts = data.get("all_alerts", [])
-        session_state.merged_df = data.get("merged_df")
-        session_state.current_project = name
-
-        # Re-sauvegarder immédiatement en JSON
-        ok, msg = save_project(name, session_state)
-        if ok:
-            log.info("Migration réussie pour %s — pickle supprimé", name)
-            return True, f"Projet '{name}' migré et chargé."
-        return True, f"Projet '{name}' chargé (migration partielle)."
-    except Exception as e:
-        log.error("Erreur migration projet %s : %s", name, e)
-        return False, f"Erreur de lecture de l'ancien format : {e}"
+    return (
+        False,
+        f"Le projet '{name}' utilise un ancien format non sécurisé (pickle). "
+        "Il a été supprimé automatiquement. Veuillez recréer ce projet.",
+    )
 
 
 def list_projects() -> list[str]:
@@ -192,10 +206,13 @@ def list_projects() -> list[str]:
         if f.endswith(PROJECT_EXT):
             # Retirer l'extension composée .tco.json.gz
             name = f.removesuffix(PROJECT_EXT)
-            names.add(name)
+            if _validate_project_name(name):
+                names.add(name)
         elif f.endswith(LEGACY_EXT):
-            # Ancien format pickle
-            names.add(os.path.splitext(f)[0])
+            # Ancien format pickle — signalé mais non chargeable
+            name = os.path.splitext(f)[0]
+            if _validate_project_name(name):
+                names.add(name)
 
     return sorted(names)
 
