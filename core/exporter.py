@@ -447,7 +447,7 @@ def export_tco(
         alerts = []
 
     log.info("Début export Excel. Lignes=%d", len(merged_df))
-    
+
     wb = openpyxl.Workbook()
     ws = wb.active
     ws.title = meta.get("sheet_name", "TCO Final")
@@ -508,7 +508,7 @@ def export_tco(
         cell.border = THIN_BORDER
 
     col_offset = 7
-    for comp_idx, comp in enumerate(companies):
+    for comp_idx, _comp in enumerate(companies):
         fill = FILL_COMPANY_COLORS[comp_idx % len(FILL_COMPANY_COLORS)]
         for i, header in enumerate(["Qu.", "Px U. HT", "Px Tot HT", "Commentaire poste"]):
             cell = ws.cell(row=2, column=col_offset + i, value=header)
@@ -625,7 +625,7 @@ def export_tco(
         ws.cell(row=excel_row, column=3, value=row.get("Qu."))
         ws.cell(row=excel_row, column=4, value=row.get("U"))
         ws.cell(row=excel_row, column=5, value=row.get("Px_U_HT"))
-        
+
         # --- Colonne F : TCO / Estimation ---
         # FIX CAS 2/3/4 : sub_section ET article contribuent au total de leur section.
         # Les sub_sections (Entete _Niv1/_Niv2) ont des prix propres (ex: 06.5.3.2)
@@ -644,7 +644,7 @@ def export_tco(
             else:
                 ws.cell(row=excel_row, column=6, value=0)
             section_total_row[current_section_code] = excel_row
-            
+
         elif row_type == "recap_summary":
             # Ligne dans le tableau final récapitulatif
             recap_summary_rows.append(excel_row)
@@ -655,7 +655,7 @@ def export_tco(
                 ws.cell(row=excel_row, column=6, value=f"=F{target_row}")
             else:
                 ws.cell(row=excel_row, column=6, value=row.get("Px_Tot_HT")) # Fallback
-                
+
         elif re.search(r"montant\s+ht", desig_lower):
             # Grand Total HT
             if recap_summary_rows:
@@ -694,11 +694,11 @@ def export_tco(
         for comp in companies:
             ws.cell(row=excel_row, column=col_offset,     value=row.get(f"{comp}_Qu."))
             ws.cell(row=excel_row, column=col_offset + 1, value=row.get(f"{comp}_Px_U_HT"))
-            
+
             qu_col  = get_column_letter(col_offset)
             px_col  = get_column_letter(col_offset + 1)
             tot_col = get_column_letter(col_offset + 2)
-            
+
             if row_type == "article":
                 ws.cell(row=excel_row, column=col_offset + 2,
                         value=f"={qu_col}{excel_row}*{px_col}{excel_row}")
@@ -751,7 +751,7 @@ def export_tco(
                             value=row.get(f"{comp}_Px_Tot_HT"))
             else:
                 ws.cell(row=excel_row, column=col_offset + 2, value=row.get(f"{comp}_Px_Tot_HT"))
-                
+
             ws.cell(row=excel_row, column=col_offset + 3, value=row.get(f"{comp}_Commentaire"))
             col_offset += 4
 
