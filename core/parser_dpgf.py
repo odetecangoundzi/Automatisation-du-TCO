@@ -231,15 +231,9 @@ def parse_dpgf(filepath: str) -> tuple[pd.DataFrame, list[dict]]:
     current_section_code = ""
 
     # Mapping dynamique des colonnes — mots-clés étendus pour DPGFs hétérogènes
-    idx_code = find_column_index(
-        df_data, ["code", "n°", "n°.", "n° de prix", "num", "indice"], 0
-    )
-    idx_desig = find_column_index(
-        df_data, ["désignation", "designation", "libellé", "libelle"], 1
-    )
-    idx_qu = find_column_index(
-        df_data, ["qu.", "quantité", "qte", "qté", "qt", "quantite", "q"], 2
-    )
+    idx_code = find_column_index(df_data, ["code", "n°", "n°.", "n° de prix", "num", "indice"], 0)
+    idx_desig = find_column_index(df_data, ["désignation", "designation", "libellé", "libelle"], 1)
+    idx_qu = find_column_index(df_data, ["qu.", "quantité", "qte", "qté", "qt", "quantite", "q"], 2)
     idx_u = find_column_index(df_data, ["u", "unité", "unite"], 3)
     idx_pu = find_column_index(
         df_data, ["px u", "p.u", "prix u", "prix unitaire", "pu", "px u."], 4
@@ -249,9 +243,7 @@ def parse_dpgf(filepath: str) -> tuple[pd.DataFrame, list[dict]]:
         ["px tot", "total ht", "prix tot", "montant ht", "total h", "pt", "px tot.", "prix tot."],
         5,
     )
-    idx_entete = find_column_index(
-        df_data, ["entete", "entête"]
-    )  # COL_NOT_FOUND (-1) si absent
+    idx_entete = find_column_index(df_data, ["entete", "entête"])  # COL_NOT_FOUND (-1) si absent
 
     for idx_in_df, xl_row in df_data.iterrows():
         row_idx = idx_in_df + header_row_idx + 2  # conversion en 1-indexed Excel row

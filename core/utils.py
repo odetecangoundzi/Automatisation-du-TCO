@@ -29,9 +29,7 @@ def find_header_row(df: pd.DataFrame, max_search: int = 40) -> int:
     Fallback (DPGFs sans colonne Code, ex : ERTIE&FILS) :
       "Désignation" présente + au moins une colonne prix/unité reconnue.
     """
-    _CODE_SYNONYMS = frozenset(
-        {"code", "n°", "n°.", "num", "indice", "ref", "no"}
-    )
+    _CODE_SYNONYMS = frozenset({"code", "n°", "n°.", "num", "indice", "ref", "no"})
     _PRICE_MARKERS = ("p.u", "px u", "prix u", "montant", "total h", "h.t.")
 
     for row_idx in range(min(len(df), max_search)):
@@ -41,10 +39,7 @@ def find_header_row(df: pd.DataFrame, max_search: int = 40) -> int:
 
         has_code = any(val in _CODE_SYNONYMS for val in row[:5])
         has_desig = any(
-            "signation" in val
-            or "libellé" in val
-            or "libelle" in val
-            for val in row[:6]
+            "signation" in val or "libellé" in val or "libelle" in val for val in row[:6]
         )
 
         if has_code and has_desig:
@@ -55,15 +50,9 @@ def find_header_row(df: pd.DataFrame, max_search: int = 40) -> int:
     for row_idx in range(min(len(df), max_search)):
         row = [str(val).strip().lower() for val in df.iloc[row_idx]]
         has_desig = any(
-            "signation" in val
-            or "libellé" in val
-            or "libelle" in val
-            for val in row[:6]
+            "signation" in val or "libellé" in val or "libelle" in val for val in row[:6]
         )
-        has_price_header = any(
-            any(marker in val for marker in _PRICE_MARKERS)
-            for val in row
-        )
+        has_price_header = any(any(marker in val for marker in _PRICE_MARKERS) for val in row)
         if has_desig and has_price_header:
             return row_idx
 
@@ -93,7 +82,7 @@ def find_column_index(
     """
     cols = [str(c).strip().lower() for c in df.columns]
     for i, col in enumerate(cols):
-        col_base = col.rstrip(". ")     # "u." → "u", "qu. ent." → "qu. ent"
+        col_base = col.rstrip(". ")  # "u." → "u", "qu. ent." → "qu. ent"
         for kw in keywords:
             kw_l = kw.lower()
             kw_base = kw_l.rstrip(". ")  # "qu." → "qu", "u" → "u"
