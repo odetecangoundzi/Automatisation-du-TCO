@@ -30,25 +30,24 @@ import signal
 import uuid
 from datetime import datetime
 
-import pandas as pd
 import streamlit as st
 
 from app import get_full_css
 from config import (
+    ADMIN_MODE,
+    ALLOWED_EXTENSIONS,
     APP_ICON,
     APP_TITLE,
     APP_VERSION,
-    ALLOWED_EXTENSIONS,
     COMPANY_NAME_MAX_LEN,
     MAX_COMPANIES,
     MAX_FILE_SIZE_MB,
     PROJECTS_DIR,
     TVA_DEFAULT,
-    TVA_OPTIONS,
     UPLOAD_DIR,
 )
 from core.exporter import export_tco
-from core.merger import merge_company_into_tco
+from core.merger import compute_section_totals, merge_all_companies
 from core.parser_dpgf import parse_dpgf
 from core.parser_tco import parse_tco
 from logger import get_logger
@@ -78,18 +77,18 @@ st.set_page_config(
 # ---------------------------------------------------------------------------
 
 defaults = {
-    "tco_df":        None,
-    "tco_meta":      None,
-    "merged_df":     None,
-    "all_alerts":    [],
-    "company_data":  {},
-    "step":          0,
-    "upload_counter":0,
-    "tva_rate":      TVA_DEFAULT,
-    "confirm_remove":None,  # UX-4 : stocke le nom de l'entreprise à supprimer
-    "dark_mode":     False,
-    "export_done":   False,
-    "_flash_msg":    None,   # P12 : message court affiché après rerun
+    "tco_df": None,
+    "tco_meta": None,
+    "merged_df": None,
+    "all_alerts": [],
+    "company_data": {},
+    "step": 0,
+    "upload_counter": 0,
+    "tva_rate": TVA_DEFAULT,
+    "confirm_remove": None,  # UX-4 : stocke le nom de l'entreprise à supprimer
+    "dark_mode": False,
+    "export_done": False,
+    "_flash_msg": None,  # P12 : message court affiché après rerun
 }
 for k, v in defaults.items():
     if k not in st.session_state:
@@ -104,6 +103,7 @@ COMPANY_PATTERN = re.compile(r"^[A-Za-zÀ-ÖØ-öø-ÿ0-9 \-_&'\.]+$")
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _safe_save(uploaded_file):
     """Sauvegarde un fichier uploadé après validation complète."""
@@ -144,29 +144,17 @@ def _validate_company_name(name):
 
 
 def rebuild_merged_tco(tva_rate=TVA_DEFAULT):
+    """Reconstruit le TCO fusionné depuis l'état de session.
+    Délègue la logique métier à merge_all_companies (core/merger.py).
+    """
     if st.session_state.tco_df is None:
         return
-    
-    log.info("Reconstruction TCO. TVA=%.2f. Entreprises=%s", 
-             tva_rate, list(st.session_state.company_data.keys()))
-             
-    merged     = st.session_state.tco_df.copy()
-    all_alerts = []
-    
-    for comp_name, comp_data in st.session_state.company_data.items():
-        merged, merge_alerts = merge_company_into_tco(
-            merged, comp_data["dpgf_df"], comp_name, tva_rate=tva_rate
-        )
-        # Tagging alerts with company name for targeted highlighting in exporter
-        for alert in comp_data.get("parse_alerts", []):
-            alert["company"] = comp_name
-        for alert in merge_alerts:
-            alert["company"] = comp_name
-            
-        all_alerts.extend(comp_data.get("parse_alerts", []))
-        all_alerts.extend(merge_alerts)
-        
-    st.session_state.merged_df  = merged
+    merged_df, all_alerts = merge_all_companies(
+        st.session_state.tco_df,
+        st.session_state.company_data,
+        tva_rate=tva_rate,
+    )
+    st.session_state.merged_df = merged_df
     st.session_state.all_alerts = all_alerts
 
 
@@ -183,7 +171,7 @@ def display_alerts(alerts, title="Alertes"):
 
 def display_preview(df, title="Aperçu"):
     hidden = {"Entete", "row_type", "original_row", "parent_code"}
-    cols   = [c for c in df.columns if c not in hidden]
+    cols = [c for c in df.columns if c not in hidden]
     hidden_types = {"empty", "recap", "recap_summary", "total_line", "total_text"}
     visible = df[~df["row_type"].isin(hidden_types)][cols]
     st.write(f"**{title}** ({len(visible)} lignes)")
@@ -238,7 +226,14 @@ if st.session_state.step > 0:
 
         # Retour à l'accueil
         if st.button("🏠 Retour à l'accueil", use_container_width=True, type="primary"):
-            for k in ["tco_df", "company_data", "tco_meta", "merged_df", "all_alerts", "current_project"]:
+            for k in [
+                "tco_df",
+                "company_data",
+                "tco_meta",
+                "merged_df",
+                "all_alerts",
+                "current_project",
+            ]:
                 if k in st.session_state:
                     del st.session_state[k]
             st.session_state.step = 0
@@ -246,10 +241,15 @@ if st.session_state.step > 0:
 
         st.markdown("---")
 
-        # Fermer l'application
-        if st.button("❌ Fermer l'application", use_container_width=True, help="Arrête le serveur Streamlit"):
-            st.warning("Arrêt de l'application...")
-            os.kill(os.getpid(), signal.SIGTERM)
+        # Fermer l'application — réservé à l'administrateur
+        if ADMIN_MODE:
+            if st.button(
+                "❌ Fermer l'application",
+                use_container_width=True,
+                help="Arrête le serveur Streamlit (admin uniquement)",
+            ):
+                st.warning("Arrêt de l'application...")
+                os.kill(os.getpid(), signal.SIGTERM)
 
 is_dark = st.session_state.dark_mode
 
@@ -263,21 +263,23 @@ st.markdown(
 )
 
 
-
 # ---------------------------------------------------------------------------
 # STEP 0 — Landing Page
 # ---------------------------------------------------------------------------
 
 if st.session_state.step == 0:
     st.markdown("<div style='height: 4rem;'></div>", unsafe_allow_html=True)
-    
+
     # Hero Section
     col_logo_left, col_logo_mid, col_logo_right = st.columns([1, 2, 1])
     with col_logo_mid:
         if os.path.exists("odetec_logo.png"):
             st.image("odetec_logo.png", use_container_width=True)
         st.markdown(f"<h1 class='main-title'>{APP_TITLE}</h1>", unsafe_allow_html=True)
-        st.markdown("<p class='subtitle'>Solution intelligente pour la consolidation des DPGF et le remplissage du TCO.</p>", unsafe_allow_html=True)
+        st.markdown(
+            "<p class='subtitle'>Solution intelligente pour la consolidation des DPGF et le remplissage du TCO.</p>",
+            unsafe_allow_html=True,
+        )
 
     st.markdown("<div style='height: 2rem;'></div>", unsafe_allow_html=True)
 
@@ -286,9 +288,17 @@ if st.session_state.step == 0:
     with col1:
         with st.container(border=True):
             st.markdown("### 🆕 Nouveau Projet")
-            st.markdown("<p>Commencez une nouvelle analyse en important un modèle de TCO vierge.</p>", unsafe_allow_html=True)
-            
-            new_proj_name = st.text_input("Nom du futur projet", placeholder="Ex: Chantier Bordeaux - Lot 04", key="landing_new_proj_name", label_visibility="collapsed")
+            st.markdown(
+                "<p>Commencez une nouvelle analyse en important un modèle de TCO vierge.</p>",
+                unsafe_allow_html=True,
+            )
+
+            new_proj_name = st.text_input(
+                "Nom du futur projet",
+                placeholder="Ex: Chantier Bordeaux - Lot 04",
+                key="landing_new_proj_name",
+                label_visibility="collapsed",
+            )
             st.markdown("<div style='height: 10px;'></div>", unsafe_allow_html=True)
             if st.button("🚀 Créer le projet", type="primary", use_container_width=True):
                 if new_proj_name:
@@ -301,8 +311,11 @@ if st.session_state.step == 0:
     with col2:
         with st.container(border=True):
             st.markdown("### 📂 Ouvrir un Projet")
-            st.markdown("<p>Reprenez un travail en cours depuis vos sauvegardes locales.</p>", unsafe_allow_html=True)
-            
+            st.markdown(
+                "<p>Reprenez un travail en cours depuis vos sauvegardes locales.</p>",
+                unsafe_allow_html=True,
+            )
+
             projects = list_projects()
             if projects:
                 for p in projects:
@@ -331,7 +344,10 @@ if st.session_state.step == 0:
 # ---------------------------------------------------------------------------
 
 if st.session_state.step > 0:
-    st.markdown(f"<h1 class='main-title' style='font-size: 1.8rem; text-align: left;'>{APP_TITLE} <span style='color: var(--text-muted); font-size: 1.2rem; font-weight: 400;'>| {st.session_state.get('current_project', 'Sans titre')}</span></h1>", unsafe_allow_html=True)
+    st.markdown(
+        f"<h1 class='main-title' style='font-size: 1.8rem; text-align: left;'>{APP_TITLE} <span style='color: var(--text-muted); font-size: 1.2rem; font-weight: 400;'>| {st.session_state.get('current_project', 'Sans titre')}</span></h1>",
+        unsafe_allow_html=True,
+    )
     st.divider()
 
 
@@ -344,12 +360,16 @@ if st.session_state.step >= 1:
         "<div class='step-header'>📥 Etape 1 : importer le modèle vierge</div>",
         unsafe_allow_html=True,
     )
-    st.caption("Fichier DPGF LOT (.xlsx) — Colonnes : Code | Désignation | Qu. | U. | Px U. | Px tot.")
+    st.caption(
+        "Fichier DPGF LOT (.xlsx) — Colonnes : Code | Désignation | Qu. | U. | Px U. | Px tot."
+    )
 
     tco_file = st.file_uploader(
-        "Charger Le DPGF Modèle", type=["xlsx"], key="tco_upload",
+        "Charger Le DPGF Modèle",
+        type=["xlsx"],
+        key="tco_upload",
         help="Fichier DPGF LOT servant de base",
-        label_visibility="visible"
+        label_visibility="visible",
     )
 
     if tco_file and st.session_state.tco_df is None:
@@ -358,22 +378,21 @@ if st.session_state.step >= 1:
             with st.spinner("🔄 Lecture du TCO..."):
                 try:
                     tco_df, meta = parse_tco(path)
-                    
+
                     # SÉCURITÉ : Recaler les totaux de l'estimation (colonne de base)
                     # Cela garantit que même si le fichier source a des erreurs de calcul
                     # ou des sous-totaux manquants, le TCO interne est cohérent.
-                    from core.merger import _compute_section_totals
-                    _compute_section_totals(tco_df, "Px_Tot_HT", tva_rate=st.session_state.tva_rate)
-                    
-                    st.session_state.tco_df      = tco_df
-                    st.session_state.tco_meta    = meta
-                    st.session_state.merged_df   = tco_df.copy()
-                    
+                    compute_section_totals(tco_df, "Px_Tot_HT", tva_rate=st.session_state.tva_rate)
+
+                    st.session_state.tco_df = tco_df
+                    st.session_state.tco_meta = meta
+                    st.session_state.merged_df = tco_df.copy()
+
                     info = meta["project_info"]
                     if info:
                         st.info(
-                            f"📋 **Projet :** {info.get('projet','N/A')} — "
-                            f"**Lot :** {info.get('lot','N/A')}"
+                            f"📋 **Projet :** {info.get('projet', 'N/A')} — "
+                            f"**Lot :** {info.get('lot', 'N/A')}"
                         )
                     template_name = os.path.splitext(tco_file.name)[0]
                     st.success(f"✅ Template {template_name} chargé — {len(tco_df)} lignes")
@@ -433,10 +452,10 @@ if st.session_state.step >= 2:
     if n_companies:
         st.write(f"**{n_companies} / {MAX_COMPANIES} entreprise(s) importée(s) :**")
         for comp_name in list(st.session_state.company_data.keys()):
-            comp   = st.session_state.company_data[comp_name]
-            n_art  = len(comp["dpgf_df"][comp["dpgf_df"]["row_type"] == "article"])
+            comp = st.session_state.company_data[comp_name]
+            n_art = len(comp["dpgf_df"][comp["dpgf_df"]["row_type"] == "article"])
             n_alrt = len(comp["parse_alerts"])
-            
+
             col_inf, col_btn = st.columns([4, 1])
             with col_inf:
                 st.markdown(
@@ -464,7 +483,7 @@ if st.session_state.step >= 2:
             type=["xlsx"],
             key=f"multi_dpgf_upload_{st.session_state.upload_counter}",
             accept_multiple_files=True,
-            help="Sélectionnez tous les fichiers DPGF des entreprises à fusionner (Format .xlsx)"
+            help="Sélectionnez tous les fichiers DPGF des entreprises à fusionner (Format .xlsx)",
         )
 
         if dpgf_files:
@@ -476,9 +495,9 @@ if st.session_state.step >= 2:
                 success_count = 0
                 for dpgf_file in new_files:
                     filename_clean = os.path.splitext(dpgf_file.name)[0]
-                    company_name = re.sub(
-                        r"^DPGF\s+", "", filename_clean, flags=re.IGNORECASE
-                    ).strip().upper()
+                    company_name = (
+                        re.sub(r"^DPGF\s+", "", filename_clean, flags=re.IGNORECASE).strip().upper()
+                    )
 
                     path = _safe_save(dpgf_file)
                     if path:
@@ -486,9 +505,9 @@ if st.session_state.step >= 2:
                             try:
                                 dpgf_df, parse_alerts = parse_dpgf(path)
                                 st.session_state.company_data[company_name] = {
-                                    "dpgf_df":      dpgf_df,
+                                    "dpgf_df": dpgf_df,
                                     "parse_alerts": parse_alerts,
-                                    "filename":     dpgf_file.name,
+                                    "filename": dpgf_file.name,
                                 }
                                 success_count += 1
                             except Exception as e:
@@ -521,14 +540,17 @@ if st.session_state.step >= 3:
         unsafe_allow_html=True,
     )
 
-    st.markdown("""
+    st.markdown(
+        """
     <div class='legend-box'>
         <div class='legend-item'><span class='color-dot' style='background:#FFC7CE'></span> Erreur</div>
         <div class='legend-item'><span class='color-dot' style='background:#FFE4B5'></span> Avertissement</div>
         <div class='legend-item'><span class='color-dot' style='background:#FFFFCC'></span> Note</div>
         <div class='legend-item'><span class='color-dot' style='background:#D6EAF8'></span> Info</div>
     </div>
-    """, unsafe_allow_html=True)
+    """,
+        unsafe_allow_html=True,
+    )
 
     merged = st.session_state.merged_df
 
@@ -536,17 +558,20 @@ if st.session_state.step >= 3:
     art_rows = merged[merged["row_type"] == "article"]
 
     cols = st.columns(3)
-    with cols[0]: st.metric("📋 Articles",   len(art_rows))
-    with cols[1]: st.metric("🏢 Entreprises", len(st.session_state.company_data))
-    with cols[2]: st.metric("⚠️ Alertes",    len(st.session_state.all_alerts))
+    with cols[0]:
+        st.metric("📋 Articles", len(art_rows))
+    with cols[1]:
+        st.metric("🏢 Entreprises", len(st.session_state.company_data))
+    with cols[2]:
+        st.metric("⚠️ Alertes", len(st.session_state.all_alerts))
 
     # Point 7 : résumé des anomalies par catégorie
     all_alerts = st.session_state.all_alerts
     if all_alerts:
-        n_err  = sum(1 for a in all_alerts if a.get("type") == "error")
+        n_err = sum(1 for a in all_alerts if a.get("type") == "error")
         n_warn = sum(1 for a in all_alerts if a.get("type") == "warning")
         n_info = sum(1 for a in all_alerts if a.get("type") == "info")
-        parts  = []
+        parts = []
         if n_err:
             parts.append(f"🔴 {n_err} erreur(s)")
         if n_warn:
@@ -569,15 +594,14 @@ if st.session_state.step >= 3:
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     # Point 1 : nom du fichier basé sur le lot détecté dans le template
     _meta_info = st.session_state.tco_meta or {}
-    _lot_raw   = _meta_info.get("project_info", {}).get("lot", "") or ""
+    _lot_raw = _meta_info.get("project_info", {}).get("lot", "") or ""
     if not _lot_raw:
         _lot_raw = st.session_state.get("current_project", "")
     # Normalisation : majuscules, espaces → underscore, caractères spéciaux supprimés
     _lot_norm = re.sub(r"[^A-Z0-9]", "_", _lot_raw.upper())
     _lot_norm = re.sub(r"_+", "_", _lot_norm).strip("_")
-    filename  = (
-        f"TCO_FINAL_{_lot_norm}_{timestamp}.xlsx" if _lot_norm
-        else f"TCO_FINAL_{timestamp}.xlsx"
+    filename = (
+        f"TCO_FINAL_{_lot_norm}_{timestamp}.xlsx" if _lot_norm else f"TCO_FINAL_{timestamp}.xlsx"
     )
 
     # Pré-génération du buffer pour téléchargement immédiat
@@ -589,9 +613,9 @@ if st.session_state.step >= 3:
                     st.session_state.tco_meta,
                     output_path=None,
                     alerts=st.session_state.all_alerts,
-                    tva_rate=st.session_state.tva_rate
+                    tva_rate=st.session_state.tva_rate,
                 )
-        
+
         def on_export_click():
             st.session_state.export_done = True
 
@@ -604,7 +628,7 @@ if st.session_state.step >= 3:
             on_click=on_export_click,
             use_container_width=True,
         )
-        
+
         if st.session_state.get("export_done"):
             st.success("✅ Téléchargement OK")
             log.info("Export téléchargé : %s", filename)

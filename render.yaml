@@ -3,7 +3,16 @@ services:
     name: tco-automator
     runtime: python
     buildCommand: pip install -r requirements.txt
-    startCommand: streamlit run app.py --server.port $PORT
+    startCommand: streamlit run app.py --server.port=$PORT --server.address=0.0.0.0 --server.headless=true --server.runOnSave=false
+    healthCheckPath: /_stcore/health
     envVars:
       - key: PYTHON_VERSION
-        value: 3.11.0
+        value: "3.11.0"
+      - key: TCO_ADMIN_MODE
+        value: "false"
+      - key: PYTHONUNBUFFERED
+        value: "1"
+      - key: LOG_LEVEL
+        value: "WARNING"
+      - key: MAX_FILE_SIZE_MB
+        value: "20"

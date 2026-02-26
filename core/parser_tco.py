@@ -11,9 +11,10 @@ from __future__ import annotations
 
 import os
 from decimal import Decimal
+
 import pandas as pd
 
-from core.utils import find_header_row, classify_row, find_column_index
+from core.utils import classify_row, find_column_index, find_header_row
 from logger import get_logger
 
 log = get_logger(__name__)
@@ -22,6 +23,7 @@ log = get_logger(__name__)
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _extract_project_info(df: pd.DataFrame, header_row_idx: int) -> dict[str, str]:
     """
@@ -34,16 +36,16 @@ def _extract_project_info(df: pd.DataFrame, header_row_idx: int) -> dict[str, st
         "projet": ["projet", "opération", "operation"],
         "adresse": ["adresse", "lieu"],
         "phase": ["phase", "étape"],
-        "lot": ["lot"]
+        "lot": ["lot"],
     }
-    
+
     # On parcourt les lignes au-dessus du header
     for r in range(header_row_idx):
-        for c in range(min(5, df.shape[1])): # On regarde les 5 premières colonnes
+        for c in range(min(5, df.shape[1])):  # On regarde les 5 premières colonnes
             val = str(df.iloc[r, c]).strip().lower()
             if not val:
                 continue
-                
+
             for key, kw_list in keywords.items():
                 if key not in info and any(kw in val for kw in kw_list):
                     # La valeur est soit dans la même cellule après le label,
@@ -51,7 +53,7 @@ def _extract_project_info(df: pd.DataFrame, header_row_idx: int) -> dict[str, st
                     if ":" in val:
                         info[key] = val.split(":", 1)[1].strip().upper()
                     elif c + 1 < df.shape[1]:
-                        next_val = str(df.iloc[r, c+1]).strip()
+                        next_val = str(df.iloc[r, c + 1]).strip()
                         if next_val and next_val.lower() != "nan":
                             info[key] = next_val.upper()
     return info
@@ -60,6 +62,7 @@ def _extract_project_info(df: pd.DataFrame, header_row_idx: int) -> dict[str, st
 # ---------------------------------------------------------------------------
 # Main parser
 # ---------------------------------------------------------------------------
+
 
 def parse_tco(filepath: str) -> tuple[pd.DataFrame, dict]:
     """
@@ -75,9 +78,12 @@ def parse_tco(filepath: str) -> tuple[pd.DataFrame, dict]:
 
     ext = os.path.splitext(filepath)[1].lower()
     engine = None
-    if ext == ".xls": engine = "xlrd"
-    elif ext == ".xlsb": engine = "pyxlsb"
-    elif ext in [".xlsx", ".xlsm"]: engine = "openpyxl"
+    if ext == ".xls":
+        engine = "xlrd"
+    elif ext == ".xlsb":
+        engine = "pyxlsb"
+    elif ext in [".xlsx", ".xlsm"]:
+        engine = "openpyxl"
 
     # Robustesse XLSX : data_only=True pour lire les valeurs cachées au lieu
     # du texte de la formule (ex: évite que "=C5*E5" arrive dans to_decimal)
@@ -85,7 +91,7 @@ def parse_tco(filepath: str) -> tuple[pd.DataFrame, dict]:
 
     try:
         # Détection de la feuille de données (même logique que parser_dpgf)
-        xl_file    = pd.ExcelFile(filepath, engine=engine)
+        xl_file = pd.ExcelFile(filepath, engine=engine)
         all_sheets = xl_file.sheet_names
         sheet_name = all_sheets[0]
 
@@ -101,10 +107,16 @@ def parse_tco(filepath: str) -> tuple[pd.DataFrame, dict]:
                 continue
 
         if sheet_name != all_sheets[0]:
-            log.info("Feuille TCO détectée : '%s' (feuille 0='%s' ignorée)", sheet_name, all_sheets[0])
+            log.info(
+                "Feuille TCO détectée : '%s' (feuille 0='%s' ignorée)", sheet_name, all_sheets[0]
+            )
 
         df_raw = pd.read_excel(
-            filepath, engine=engine, header=None, sheet_name=sheet_name, engine_kwargs=_engine_kwargs
+            filepath,
+            engine=engine,
+            header=None,
+            sheet_name=sheet_name,
+            engine_kwargs=_engine_kwargs,
         )
         header_row_idx = find_header_row(df_raw)
 
@@ -112,13 +124,22 @@ def parse_tco(filepath: str) -> tuple[pd.DataFrame, dict]:
 
         # Re-lecture avec le bon header
         df_data = pd.read_excel(
-            filepath, engine=engine, skiprows=header_row_idx, sheet_name=sheet_name, engine_kwargs=_engine_kwargs
+            filepath,
+            engine=engine,
+            skiprows=header_row_idx,
+            sheet_name=sheet_name,
+            engine_kwargs=_engine_kwargs,
+            dtype=object,  # preserve codes comme strings
         )
         log.debug("En-tête trouvée index %d | projet=%s", header_row_idx, project_info)
     except Exception as e:
         log.error("Erreur de structure TCO: %s", e)
         return pd.DataFrame(), {
-            "project_info": {}, "header_row": 0, "sheet_name": "TCO", "filepath": filepath, "error": str(e)
+            "project_info": {},
+            "header_row": 0,
+            "sheet_name": "TCO",
+            "filepath": filepath,
+            "error": str(e),
         }
 
     def to_decimal(val: object) -> Decimal:
@@ -133,55 +154,61 @@ def parse_tco(filepath: str) -> tuple[pd.DataFrame, dict]:
     current_section_code = ""
 
     # Dynamic column mapping
-    idx_code   = find_column_index(df_data, ["code"], 0)
-    idx_desig  = find_column_index(df_data, ["désignation", "designation", "libellé"], 1)
-    idx_qu     = find_column_index(df_data, ["qu.", "quantité", "qte", "qté"], 2)
-    idx_u      = find_column_index(df_data, ["u", "unité"], 3)
-    idx_pu     = find_column_index(df_data, ["px u", "p.u", "prix u"], 4)
-    idx_tot    = find_column_index(df_data, ["px tot", "total ht", "prix tot"], 5)
-    idx_entete = find_column_index(df_data, ["entete", "entête"], 12)
+    idx_code = find_column_index(df_data, ["code"], 0)
+    idx_desig = find_column_index(df_data, ["désignation", "designation", "libellé"], 1)
+    idx_qu = find_column_index(df_data, ["qu.", "quantité", "qte", "qté"], 2)
+    idx_u = find_column_index(df_data, ["u", "unité"], 3)
+    idx_pu = find_column_index(df_data, ["px u", "p.u", "prix u"], 4)
+    idx_tot = find_column_index(df_data, ["px tot", "total ht", "prix tot"], 5)
+    idx_entete = find_column_index(
+        df_data, ["entete", "entête"]
+    )  # None → COL_NOT_FOUND (-1) si absent
 
     for idx_in_df, xl_row in df_data.iterrows():
-        row_idx = idx_in_df + header_row_idx + 2 # conversion en 1-indexed Excel row
-        
+        row_idx = idx_in_df + header_row_idx + 2  # conversion en 1-indexed Excel row
+
         if len(xl_row) <= max(idx_code, idx_desig, idx_qu, idx_pu, idx_tot):
             continue
 
-        code_raw  = xl_row.iloc[idx_code]
+        code_raw = xl_row.iloc[idx_code]
         desig_raw = xl_row.iloc[idx_desig]
-        qu_raw    = xl_row.iloc[idx_qu]
-        u         = xl_row.iloc[idx_u]
-        px_u_raw  = xl_row.iloc[idx_pu]
-        px_tot_raw= xl_row.iloc[idx_tot]
-        entete    = xl_row.iloc[idx_entete] if len(xl_row) > idx_entete else None
+        qu_raw = xl_row.iloc[idx_qu]
+        u = xl_row.iloc[idx_u]
+        px_u_raw = xl_row.iloc[idx_pu]
+        px_tot_raw = xl_row.iloc[idx_tot]
+        entete = xl_row.iloc[idx_entete] if (idx_entete >= 0 and len(xl_row) > idx_entete) else None
 
-        code_str  = str(code_raw).strip()  if pd.notna(code_raw)  else ""
+        code_str = str(code_raw).strip() if pd.notna(code_raw) else ""
         desig_str = str(desig_raw).strip() if pd.notna(desig_raw) else ""
-        ent_str   = str(entete).strip()    if pd.notna(entete)    else ""
+        ent_str = str(entete).strip() if pd.notna(entete) else ""
 
-        qu     = to_decimal(qu_raw)
-        px_u   = to_decimal(px_u_raw)
+        qu = to_decimal(qu_raw)
+        px_u = to_decimal(px_u_raw)
         px_tot = to_decimal(px_tot_raw)
 
-        row_type = classify_row(code_str, desig_str, ent_str)
+        # has_price : Qu et PU non nuls indiquent un article (fallback quand Entete absent)
+        has_price_tco = qu > Decimal("0.0") and px_u > Decimal("0.0")
+        row_type = classify_row(code_str, desig_str, ent_str, has_price=has_price_tco)
 
         if row_type == "section_header":
             current_section_code = code_str
 
         parent_code = current_section_code if row_type == "recap" else ""
 
-        rows.append({
-            "Code":         code_str,
-            "Désignation":  desig_str,
-            "Qu.":          qu,
-            "U":            str(u).strip() if pd.notna(u) else "",
-            "Px_U_HT":      px_u,
-            "Px_Tot_HT":    px_tot,
-            "Entete":       ent_str,
-            "row_type":     row_type,
-            "original_row": row_idx,
-            "parent_code":  parent_code,
-        })
+        rows.append(
+            {
+                "Code": code_str,
+                "Désignation": desig_str,
+                "Qu.": qu,
+                "U": str(u).strip() if pd.notna(u) else "",
+                "Px_U_HT": px_u,
+                "Px_Tot_HT": px_tot,
+                "Entete": ent_str,
+                "row_type": row_type,
+                "original_row": row_idx,
+                "parent_code": parent_code,
+            }
+        )
 
     tco_df = pd.DataFrame(rows)
     log.info(
@@ -193,10 +220,9 @@ def parse_tco(filepath: str) -> tuple[pd.DataFrame, dict]:
 
     meta = {
         "project_info": project_info,
-        "header_row":   header_row_idx + 1,
-        "sheet_name":   "TCO",
-        "filepath":     filepath,
+        "header_row": header_row_idx + 1,
+        "sheet_name": "TCO",
+        "filepath": filepath,
     }
 
     return tco_df, meta
-

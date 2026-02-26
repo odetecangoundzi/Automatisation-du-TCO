@@ -1,0 +1,92 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "**.py"
+      - "requirements.txt"
+      - "pyproject.toml"
+      - ".github/workflows/ci.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "**.py"
+      - "requirements.txt"
+      - "pyproject.toml"
+      - ".github/workflows/ci.yml"
+
+# Annule les runs en cours si un nouveau push arrive sur la même branche
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ─────────────────────────────────────────────────────────────
+  # JOB 1 — Lint & Format (ruff)
+  # ─────────────────────────────────────────────────────────────
+  lint:
+    name: Lint & Format
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install ruff
+        run: pip install "ruff>=0.4.0"
+
+      - name: Ruff — vérification des erreurs
+        run: ruff check . --output-format=github
+
+      - name: Ruff — vérification du formatage
+        run: ruff format --check .
+
+  # ─────────────────────────────────────────────────────────────
+  # JOB 2 — Tests (matrix Python 3.10 / 3.11 / 3.12)
+  # ─────────────────────────────────────────────────────────────
+  test:
+    name: Tests · Python ${{ matrix.python-version }}
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false          # affiche tous les échecs, même si une version échoue
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: "pip"
+
+      - name: Installer les dépendances
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest-cov
+
+      - name: Lancer les tests avec couverture
+        run: |
+          pytest tests/ -v --tb=short \
+            --cov=core \
+            --cov-report=term-missing \
+            --cov-report=xml:coverage.xml
+
+      - name: Publier le rapport de couverture (Python 3.11 uniquement)
+        if: matrix.python-version == '3.11'
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: coverage.xml
+          retention-days: 14

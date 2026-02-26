@@ -11,9 +11,13 @@ import os
 import sys
 
 
-def setup_logger(log_dir="logs", log_filename="tco_automator.log",
-                 max_bytes=5 * 1024 * 1024, backup_count=3,
-                 level="INFO"):
+def setup_logger(
+    log_dir="logs",
+    log_filename="tco_automator.log",
+    max_bytes=5 * 1024 * 1024,
+    backup_count=3,
+    level="INFO",
+):
     """
     Configure le logger principal avec :
       - RotatingFileHandler : rotation à max_bytes, backup_count fichiers

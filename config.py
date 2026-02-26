@@ -17,10 +17,10 @@ load_dotenv()  # Charge les variables depuis .env si le fichier existe
 # Répertoires
 # ---------------------------------------------------------------------------
 
-BASE_DIR   = os.path.dirname(os.path.abspath(__file__))
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 UPLOAD_DIR = os.path.join(BASE_DIR, "uploads")
 OUTPUT_DIR = os.path.join(BASE_DIR, "outputs")
-LOG_DIR    = os.path.join(BASE_DIR, "logs")
+LOG_DIR = os.path.join(BASE_DIR, "logs")
 PROJECTS_DIR = os.path.join(BASE_DIR, "projects")
 
 # ---------------------------------------------------------------------------
@@ -28,23 +28,23 @@ PROJECTS_DIR = os.path.join(BASE_DIR, "projects")
 # ---------------------------------------------------------------------------
 
 ALLOWED_EXTENSIONS = {".xlsx", ".xlsm", ".xls", ".xlsb"}
-MAX_FILE_SIZE_MB   = 20          # Taille max par fichier uploadé
+MAX_FILE_SIZE_MB = 20  # Taille max par fichier uploadé
 
 # ---------------------------------------------------------------------------
 # Entreprises
 # ---------------------------------------------------------------------------
 
-MAX_COMPANIES = 100               # Nombre max d'entreprises simultanées
-COMPANY_NAME_MAX_LEN = 60        # Longueur max du nom d'entreprise
+MAX_COMPANIES = 100  # Nombre max d'entreprises simultanées
+COMPANY_NAME_MAX_LEN = 60  # Longueur max du nom d'entreprise
 
 # ---------------------------------------------------------------------------
 # Métier — TVA
 # ---------------------------------------------------------------------------
 
 TVA_OPTIONS = {
-    "5,5 %": 0.055,   # Travaux de rénovation résidentielle
-    "10 %":  0.10,    # Travaux de rénovation non HLM
-    "20 %":  0.20,    # Taux normal
+    "5,5 %": 0.055,  # Travaux de rénovation résidentielle
+    "10 %": 0.10,  # Travaux de rénovation non HLM
+    "20 %": 0.20,  # Taux normal
 }
 TVA_DEFAULT = 0.20
 
@@ -53,22 +53,26 @@ TVA_DEFAULT = 0.20
 # ---------------------------------------------------------------------------
 
 # Tolérance pour l'incohérence de total Qu × PU vs Px_Tot_HT
-TOTAL_TOLERANCE_ABS = 0.10    # max 10 centimes d'écart absolu
-TOTAL_TOLERANCE_REL = 0.001   # OU 0.1 % d'écart relatif
+TOTAL_TOLERANCE_ABS = 0.10  # max 10 centimes d'écart absolu
+TOTAL_TOLERANCE_REL = 0.001  # OU 0.1 % d'écart relatif
 
 # ---------------------------------------------------------------------------
 # Logging
 # ---------------------------------------------------------------------------
 
-LOG_FILENAME       = "tco_automator.log"
-LOG_MAX_BYTES      = 5 * 1024 * 1024   # 5 MB par fichier
-LOG_BACKUP_COUNT   = 3                  # Garder 3 fichiers de rotation
-LOG_LEVEL          = "INFO"             # DEBUG | INFO | WARNING | ERROR
+LOG_FILENAME = "tco_automator.log"
+LOG_MAX_BYTES = 5 * 1024 * 1024  # 5 MB par fichier
+LOG_BACKUP_COUNT = 3  # Garder 3 fichiers de rotation
+LOG_LEVEL = "INFO"  # DEBUG | INFO | WARNING | ERROR
 
 # ---------------------------------------------------------------------------
 # Application
 # ---------------------------------------------------------------------------
 
-APP_TITLE   = "TCO Automator"
+APP_TITLE = "TCO Automator"
 APP_VERSION = "2.1.0"
-APP_ICON    = "📊"
+APP_ICON = "📊"
+
+# Mode administrateur — active les commandes sensibles (arrêt serveur, etc.)
+# Activer via variable d'environnement : TCO_ADMIN_MODE=true
+ADMIN_MODE = os.getenv("TCO_ADMIN_MODE", "false").strip().lower() == "true"

@@ -147,9 +147,7 @@ def load_project(name: str, session_state) -> tuple[bool, str]:
         return False, f"Erreur de lecture : {e}"
 
 
-def _migrate_legacy_project(
-    name: str, legacy_path: str, session_state
-) -> tuple[bool, str]:
+def _migrate_legacy_project(name: str, legacy_path: str, session_state) -> tuple[bool, str]:
     """
     Tente de migrer un projet depuis l'ancien format pickle vers JSON.
 
