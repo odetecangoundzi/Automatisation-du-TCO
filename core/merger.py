@@ -291,9 +291,15 @@ def merge_company_into_tco(
                     and _normalize_code(row.get("parent_code", "")) == parent_code
                 ):
                     new_row = _build_new_row(
-                        code, dpgf_row, merged_df,
-                        col_qu, col_pu, col_tot, col_com,
-                        parent_code, int(idx),
+                        code,
+                        dpgf_row,
+                        merged_df,
+                        col_qu,
+                        col_pu,
+                        col_tot,
+                        col_com,
+                        parent_code,
+                        int(idx),
                     )
                     insertions.append((int(idx), len(insertions), new_row))
                     matched_count += 1
@@ -317,9 +323,15 @@ def merge_company_into_tco(
                             and _normalize_code(row.get("parent_code", "")) == fallback_parent
                         ):
                             new_row = _build_new_row(
-                                code, dpgf_row, merged_df,
-                                col_qu, col_pu, col_tot, col_com,
-                                fallback_parent, int(idx),
+                                code,
+                                dpgf_row,
+                                merged_df,
+                                col_qu,
+                                col_pu,
+                                col_tot,
+                                col_com,
+                                fallback_parent,
+                                int(idx),
                             )
                             insertions.append((int(idx), len(insertions), new_row))
                             matched_count += 1

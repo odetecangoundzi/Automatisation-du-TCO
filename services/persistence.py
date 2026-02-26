@@ -86,6 +86,7 @@ def save_project(name: str, session_state) -> tuple[bool, str]:
     }
 
     try:
+
         def _json_default(obj):
             # Sérialiser Decimal en float (préserve la précision numérique)
             # pour que pd.DataFrame() reconstituera des colonnes numériques
@@ -178,9 +179,7 @@ def _migrate_legacy_project(name: str, legacy_path: str, session_state) -> tuple
     Les projets au format legacy doivent être recréés manuellement.
     Voir : https://docs.python.org/3/library/pickle.html#pickle-security
     """
-    log.error(
-        "Chargement refusé — format pickle non sécurisé (SEC-PICKLE) : %s", legacy_path
-    )
+    log.error("Chargement refusé — format pickle non sécurisé (SEC-PICKLE) : %s", legacy_path)
     # Proposer de supprimer le fichier dangereux
     try:
         os.remove(legacy_path)
