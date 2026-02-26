@@ -1,5 +1,5 @@
 """
-styles.py — CSS centralisé pour l'interface Streamlit TCO Automator.
+styles.py — CSS centralisé pour l'interface Streamlit Export du TCO.
 
 Fournit le thème clair/sombre avec des variables CSS.
 Extrait de app.py pour améliorer la maintenabilité.

@@ -1,4 +1,4 @@
-"""Test script for TCO Automator end-to-end."""
+"""Test script for Export du TCO end-to-end."""
 import sys
 import os
 

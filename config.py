@@ -1,5 +1,5 @@
 """
-config.py — Configuration centralisée du TCO Automator.
+config.py — Configuration centralisée du Export du TCO.
 
 ARCH-3 : Toutes les constantes métier et techniques sont ici.
 Modifier ce fichier pour adapter l'application à votre contexte.
@@ -69,7 +69,7 @@ LOG_LEVEL = "INFO"  # DEBUG | INFO | WARNING | ERROR
 # Application
 # ---------------------------------------------------------------------------
 
-APP_TITLE = "TCO Automator"
+APP_TITLE = "Export du TCO"
 APP_VERSION = "2.1.0"
 APP_ICON = "📊"
 

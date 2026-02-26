@@ -1,5 +1,5 @@
 """
-app.py — Interface Streamlit pour TCO Automator (production-ready).
+app.py — Interface Streamlit pour Export du TCO (production-ready).
 
 Application en 3 étapes :
 1. Import du TCO modèle
@@ -453,7 +453,10 @@ if st.session_state.step >= 2:
         st.write(f"**{n_companies} / {MAX_COMPANIES} entreprise(s) importée(s) :**")
         for comp_name in list(st.session_state.company_data.keys()):
             comp = st.session_state.company_data[comp_name]
-            n_art = len(comp["dpgf_df"][comp["dpgf_df"]["row_type"] == "article"])
+            # n_articles mis en cache à l'insertion ; fallback pour données chargées depuis un projet
+            if "n_articles" not in comp:
+                comp["n_articles"] = int((comp["dpgf_df"]["row_type"] == "article").sum())
+            n_art = comp["n_articles"]
             n_alrt = len(comp["parse_alerts"])
 
             col_inf, col_btn = st.columns([4, 1])
@@ -508,6 +511,7 @@ if st.session_state.step >= 2:
                                     "dpgf_df": dpgf_df,
                                     "parse_alerts": parse_alerts,
                                     "filename": dpgf_file.name,
+                                    "n_articles": int((dpgf_df["row_type"] == "article").sum()),
                                 }
                                 success_count += 1
                             except Exception as e:
@@ -525,8 +529,12 @@ if st.session_state.step >= 2:
                     st.rerun()
 
     if st.button("🔄 Tout réinitialiser"):
-        for k in list(st.session_state.keys()):
-            del st.session_state[k]
+        # Réinitialise uniquement les clés applicatives — ne supprime pas les clés
+        # internes de Streamlit (préfixe "_" ou inconnues) pour éviter les effets de bord.
+        for k, v in defaults.items():
+            st.session_state[k] = type(v)() if isinstance(v, (list, dict)) else v
+        for extra_key in ("current_project", "export_buffer"):
+            st.session_state.pop(extra_key, None)
         st.rerun()
 
 
@@ -638,4 +646,4 @@ if st.session_state.step >= 3:
         st.error(f"❌ Erreur de génération : {e}")
 
 st.divider()
-st.caption(f"{APP_TITLE} v{APP_VERSION} — TCO Automator")
+st.caption(f"{APP_TITLE} v{APP_VERSION} — Export du TCO")

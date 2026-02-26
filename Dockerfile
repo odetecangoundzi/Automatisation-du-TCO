@@ -2,7 +2,7 @@
 FROM python:3.11-slim
 
 # Métadonnées
-LABEL org.opencontainers.image.title="TCO Automator" \
+LABEL org.opencontainers.image.title="Export du TCO" \
       org.opencontainers.image.description="Consolidation automatique des DPGF et remplissage du TCO" \
       org.opencontainers.image.version="2.2.0"
 
