@@ -18,8 +18,6 @@ from typing import TYPE_CHECKING
 import openpyxl
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
-from openpyxl.chart import BarChart, PieChart, Reference, Series
-from openpyxl.chart.label import DataLabelList
 
 from logger import get_logger
 
@@ -56,8 +54,11 @@ FILL_COMPANY_COLORS = [
 FILL_WHITE = PatternFill(start_color="FFFFFF", end_color="FFFFFF", fill_type="solid")
 FILL_SECTION       = FILL_WHITE
 FILL_RECAP         = FILL_WHITE
-FILL_RECAP_SUMMARY = FILL_WHITE
+FILL_RECAP_SUMMARY = PatternFill(  # bleu clair — distingue la section récapitulatif
+    start_color="D6E4F7", end_color="D6E4F7", fill_type="solid")
 FILL_TOTAL_LINE    = FILL_WHITE
+FILL_RECAP_HEADER  = PatternFill(  # marine foncé — bandeau titre récapitulatif
+    start_color="17375E", end_color="17375E", fill_type="solid")
 FILL_SUB_SECTION   = FILL_WHITE
 
 # Titres principaux (sub_section sans prix = ex : BATIMENT F)
@@ -74,31 +75,38 @@ FILL_WARNING = PatternFill(start_color="FFE4B5", end_color="FFE4B5", fill_type="
 FILL_NOTE    = PatternFill(start_color="FFFFCC", end_color="FFFFCC", fill_type="solid")
 FILL_INFO    = PatternFill(start_color="D6EAF8", end_color="D6EAF8", fill_type="solid")
 
-# Styles spécifiques à l'onglet ANALYSE (Premium)
-FILL_ANA_BG      = PatternFill(start_color="F8F9FA", end_color="F8F9FA", fill_type="solid")
+# Styles spécifiques à l'onglet ANALYSE
 FILL_ANA_CARD    = PatternFill(start_color="FFFFFF", end_color="FFFFFF", fill_type="solid")
 FILL_ANA_HEADER  = PatternFill(start_color="1F4E79", end_color="1F4E79", fill_type="solid")
 FILL_ANA_STRIPE  = PatternFill(start_color="F2F2F2", end_color="F2F2F2", fill_type="solid")
 
-# Couleurs par section
-FILL_SECTION_AUDIT  = PatternFill(start_color="E67E22", end_color="E67E22", fill_type="solid") # Orange - Audit
-FILL_SECTION_GAPS   = PatternFill(start_color="F1C40F", end_color="F1C40F", fill_type="solid") # Jaune - Négociation
-FILL_SECTION_MATRIX = PatternFill(start_color="27AE60", end_color="27AE60", fill_type="solid") # Vert - Mieux-disant
+FILL_SECTION_AUDIT = PatternFill(start_color="E67E22", end_color="E67E22", fill_type="solid")
 
-FONT_ANA_TITLE   = Font(name="Tahoma", bold=True, size=22, color="1F4E79")
-FONT_ANA_SUB     = Font(name="Tahoma", bold=True, size=14, color="314E85")
+FONT_RECAP_HEADER = Font(name="Tahoma", bold=True, size=11, color="FFFFFF")
+
+# Articles alternatifs (code suffixé "A", "AA"…) — orange, conforme modèles de référence
+FONT_ALTERNATIVE = Font(name="Tahoma", bold=True, size=9, color="DC9329")
+
+# Récap de section imbriquée (sous-total intermédiaire) — taille 8pt comme la référence
+FONT_RECAP_SUB = Font(name="Tahoma", bold=True, size=8, color="000000")
+
+# ---------------------------------------------------------------------------
+# Couleurs d'onglet par numéro de lot (palette tirée des modèles TCO de référence)
+# ---------------------------------------------------------------------------
+_LOT_TAB_COLORS: dict[str, str] = {
+    "01": "548235",   # vert         — VRD / Terrassement / Paysage
+    "02": "843C0C",   # brun         — Gros Œuvre / Fondations
+    "03": "1F4E79",   # bleu foncé   — Charpente
+    "04": "7030A0",   # violet       — Revêtements / Peinture / Signalétique
+    "05": "2E75B6",   # bleu moyen   — Plomberie / CVC
+    "06": "BF8F00",   # or           — Électricité CFO
+    "10": "C00000",   # rouge        — Chauffage / Ventilation / Plomberie
+    "11": "375623",   # vert foncé   — Électricité Photovoltaïque
+    "12": "984807",   # orange foncé — Équipements Cuisine
+}
+
 FONT_ANA_SECTION = Font(name="Tahoma", bold=True, size=14, color="FFFFFF")
-FONT_ANA_BOLD    = Font(name="Tahoma", bold=True, size=10, color="000000")
-FONT_ANA_KPI_L   = Font(name="Tahoma", size=11, color="595959")
-FONT_ANA_KPI_V   = Font(name="Tahoma", bold=True, size=16, color="000000")
 FONT_ANA_WHITE   = Font(name="Tahoma", bold=True, size=10, color="FFFFFF")
-
-BORDER_ANA_CARD = Border(
-    left=Side(style="medium", color="D9D9D9"),
-    right=Side(style="medium", color="D9D9D9"),
-    top=Side(style="medium", color="1F4E79"),
-    bottom=Side(style="medium", color="D9D9D9")
-)
 
 THIN_BORDER = Border(
     left=Side(style="thin"), right=Side(style="thin"),
@@ -252,206 +260,173 @@ def _rows_to_sum_formula(col: str, rows: list[int]) -> str:
     return "=SUM(" + ",".join(parts) + ")"
 
 
+_BORDER_THIN = Border(
+    left=Side(style="thin", color="BFBFBF"),
+    right=Side(style="thin", color="BFBFBF"),
+    top=Side(style="thin", color="BFBFBF"),
+    bottom=Side(style="thin", color="BFBFBF"),
+)
+_BORDER_HEADER = Border(
+    left=Side(style="thin", color="FFFFFF"),
+    right=Side(style="thin", color="FFFFFF"),
+    bottom=Side(style="medium", color="FFFFFF"),
+)
+
+
 def create_analysis_sheet(
     wb: openpyxl.Workbook,
     merged_df: pd.DataFrame,
     companies: list[str],
 ) -> None:
     """
-    Crée l'onglet 'Analyse' (Feuille 2) avec un rendu 'Dashboard Premium'.
+    Crée l'onglet 'Analyse' (Feuille 2) — Audit des omissions.
+    Colonnes : CODE | DESCRIPTION | MONTANT REF (€) | [entreprises…]
+    Améliorations : résumé stats, montant référence, fond coloré par statut,
+    tri décroissant par montant, freeze panes sur l'en-tête.
     """
     ws = wb.create_sheet("Analyse", index=1)
     ws.sheet_view.showGridLines = False
     ws.sheet_properties.tabColor = "1F4E79"
-    
-    # Fond de page
-    for r in range(1, 200):
-        for c in range(1, 40):
-            ws.cell(row=r, column=c).fill = FILL_ANA_BG
-            
-    ws.column_dimensions["A"].width = 4
-    ws.column_dimensions["B"].width = 25
-    ws.column_dimensions["C"].width = 45
-    ws.column_dimensions["D"].width = 18
-    ws.column_dimensions["E"].width = 18
-    ws.column_dimensions["F"].width = 18
-    
-    # 1. HEADER D'ONGLET
-    ws.cell(row=2, column=2, value="📊 TABLEAU DE BORD DÉCISIONNEL").font = FONT_ANA_TITLE
-    ws.cell(row=3, column=2, value="Analyse comparative et outils de négociation stratégique").font = FONT_ANA_SUB
-    
-    # --- CALCULS ---
-    mask_ht = merged_df["Désignation"].str.contains(r"Montant HT", case=False, na=False)
-    df_ht = merged_df[mask_ht]
-    budget_ht = 0.0
-    company_totals = {}
-    if not df_ht.empty:
-        row_ht = df_ht.iloc[0]
-        budget_ht = float(row_ht.get("Px_Tot_HT", 0) or 0)
-        for comp in companies:
-            company_totals[comp] = float(row_ht.get(f"{comp}_Px_Tot_HT", 0) or 0)
 
-    # 2. CARRES KPIs (B5-C8, D5-E8, F5-G8)
-    # Espacement : 1 colonne vide entre les cartes
-    kpis = [
-        ("BUDGET ESTIMÉ", budget_ht, 2, "1F4E79"),
-        ("MOINS DISANT", min(company_totals.values()) if company_totals else 0, 5, "27AE60"),
-        ("MOYENNE MARCHÉ", sum(company_totals.values())/len(company_totals) if company_totals else 0, 8, "7F8C8D")
-    ]
-    
-    for label, val, start_col, color in kpis:
-        # Cadre blanc
-        for r in range(5, 10):
-            for i in range(2):
-                cell = ws.cell(row=r, column=start_col + i)
-                cell.fill = FILL_ANA_CARD
-                if r == 5: cell.border = Border(top=Side(style="thick", color=color))
-        
-        ws.cell(row=6, column=start_col, value=label).font = FONT_ANA_KPI_L
-        c_val = ws.cell(row=8, column=start_col, value=val)
-        c_val.font = FONT_ANA_KPI_V
-        c_val.number_format = MONEY_FORMAT
-        
-        if label == "MOINS DISANT" and company_totals:
-            min_c = min(company_totals, key=company_totals.get)
-            ws.cell(row=9, column=start_col, value=f"🏆 {min_c.upper()}").font = FONT_ANA_BOLD
+    # ── Largeurs colonnes ────────────────────────────────────────────────────
+    ws.column_dimensions["A"].width = 3
+    ws.column_dimensions["B"].width = 18   # CODE
+    ws.column_dimensions["C"].width = 60   # DESCRIPTION DU POSTE
+    ws.column_dimensions["D"].width = 20   # MONTANT REF (€)
+    for i in range(len(companies)):
+        ws.column_dimensions[get_column_letter(5 + i)].width = 22
 
-    # 3. GRAPHIQUE (B12:G24)
-    # Données graphiques cachées
-    dsr = 150
-    ws.cell(row=dsr, column=30, value="Candidat")
-    ws.cell(row=dsr, column=31, value="HT")
-    ws.cell(row=dsr+1, column=30, value="ESTIMATION")
-    ws.cell(row=dsr+1, column=31, value=budget_ht)
-    curr_r = dsr + 2
-    for comp, tot in company_totals.items():
-        ws.cell(row=curr_r, column=30, value=comp)
-        ws.cell(row=curr_r, column=31, value=tot)
-        curr_r += 1
-        
-    chart = BarChart()
-    chart.title = "COMPARAISON GLOBALE DU LOT"
-    chart.height = 8.5
-    chart.width = 22
-    data = Reference(ws, min_col=31, min_row=dsr, max_row=curr_r-1)
-    cats = Reference(ws, min_col=30, min_row=dsr+1, max_row=curr_r-1)
-    chart.add_data(data, titles_from_data=True)
-    chart.set_categories(cats)
-    
-    # Amélioration de la lisibilité : Étiquettes de données
-    chart.dLbls = DataLabelList()
-    chart.dLbls.showVal = True
-    chart.dLbls.showCatName = True
-    
-    # Légende à droite pour expliquer les barres
-    chart.legend.position = 'r'
-    
-    ws.add_chart(chart, "B12")
-    
-    # 3.1 Légende textuelle additionnelle pour lever toute ambiguïté
-    ws.cell(row=25, column=2, value="💡  LÉGENDE GRAPHISME :").font = FONT_ANA_BOLD
-    ws.cell(row=26, column=2, value="• ESTIMATION : Budget prévu initialement (Référence)").font = FONT_ANA_KPI_L
-    ws.cell(row=26, column=4, value="• ENTREPRISES : Montants totaux des offres reçues").font = FONT_ANA_KPI_L
-
-    # --- SECTIONS COLORÉES AVEC TITRES ---
-    
-    # 4. AUDIT (Orange)
-    audit_y = 30
-    # Titre de section
-    for c in range(2, 10):
-        cell = ws.cell(row=audit_y, column=c)
-        cell.fill = FILL_SECTION_AUDIT
-        if c == 2:
-            cell.value = "⚠️  AUDIT DES OMISSIONS (TENSIONS SUR PRIX À 0 €)"
-            cell.font = FONT_ANA_SECTION
-            
-    header_row = audit_y + 2
-    headers = ["CODE", "DESCRIPTION DU POSTE"] + [c.upper() for c in companies]
-    for i, h in enumerate(headers):
-        cell = ws.cell(row=header_row, column=2+i, value=h)
-        cell.font = FONT_ANA_WHITE
-        cell.fill = FILL_ANA_HEADER
-        cell.alignment = Alignment(horizontal="center")
-        
-    curr_row = header_row + 1
+    # ── Pré-calcul (D + A) ───────────────────────────────────────────────────
     articles = merged_df[merged_df["row_type"] == "article"]
-    count = 0
+    rows_with_omissions: list[tuple] = []
     for _, row in articles.iterrows():
-        omissions = [("MISSING" if float(row.get(f"{c}_Px_Tot_HT", 0) or 0) == 0 else "OK") for c in companies]
+        omissions = [
+            ("MISSING" if float(row.get(f"{c}_Px_Tot_HT", 0) or 0) == 0 else "OK")
+            for c in companies
+        ]
         if "MISSING" in omissions:
-            bg = FILL_ANA_STRIPE if count % 2 == 1 else FILL_ANA_CARD
-            ws.cell(row=curr_row, column=2, value=row["Code"]).fill = bg
-            ws.cell(row=curr_row, column=3, value=row["Désignation"]).fill = bg
-            for i, st in enumerate(omissions):
-                c = ws.cell(row=curr_row, column=4+i, value="Oubli ?" if st == "MISSING" else "✓")
-                c.fill = bg
-                c.alignment = Alignment(horizontal="center")
-                if st == "MISSING": c.font = Font(color="C00000", bold=True)
-            curr_row += 1
-            count += 1
-            if count >= 10: break
+            rows_with_omissions.append((row, omissions))
 
-    # 5. ÉCARTS (Jaune)
-    gap_y = curr_row + 3
-    for c in range(2, 6):
-        cell = ws.cell(row=gap_y, column=c)
-        cell.fill = FILL_SECTION_GAPS
-        if c == 2:
-            cell.value = "💡  TOP 10 DES ÉCARTS MAJEURS (LEVIERS DE NÉGOCIATION)"
-            cell.font = FONT_ANA_SECTION
-            
-    h_row = gap_y + 2
-    for i, h in enumerate(["CODE", "POSTE STRATÉGIQUE", "ÉCART MAX (€)"]):
-        cell = ws.cell(row=h_row, column=2+i, value=h)
-        cell.font = FONT_ANA_WHITE
-        cell.fill = FILL_ANA_HEADER
-        
-    gaps = []
-    for _, row in articles.iterrows():
-        b = float(row.get("Px_Tot_HT", 0) or 0)
-        if b <= 0: continue
-        diff = max([abs(float(row.get(f"{c}_Px_Tot_HT", 0) or 0) - b) for c in companies])
-        if diff > 0: gaps.append((row["Code"], row["Désignation"], diff))
-        
-    gaps = sorted(gaps, key=lambda x: x[2], reverse=True)[:10]
-    for i, (code, desig, delta) in enumerate(gaps):
-        r = h_row + 1 + i
-        bg = FILL_ANA_STRIPE if i % 2 == 1 else FILL_ANA_CARD
-        ws.cell(row=r, column=2, value=code).fill = bg
-        ws.cell(row=r, column=3, value=desig).fill = bg
-        c_v = ws.cell(row=r, column=4, value=delta)
-        c_v.fill = bg
-        c_v.font = FONT_ANA_BOLD
-        c_v.number_format = MONEY_FORMAT
+    # D — Tri par montant référence décroissant (omissions les plus critiques en premier)
+    rows_with_omissions.sort(
+        key=lambda x: float(x[0].get("Px_Tot_HT", 0) or 0),
+        reverse=True,
+    )
 
-    # 6. MATRIX (Vert)
-    mat_y = h_row + 13
-    for c in range(2, 6):
-        cell = ws.cell(row=mat_y, column=c)
-        cell.fill = FILL_SECTION_MATRIX
-        if c == 2:
-            cell.value = "🏆  SYNTHÈSE DU MIEUX-DISANT PAR SECTION"
-            cell.font = FONT_ANA_SECTION
-            
-    m_h = mat_y + 2
-    for i, h in enumerate(["SECTION", "CANDIDAT GAGNANT", "MONTANT (€ HT)"]):
-        cell = ws.cell(row=m_h, column=2+i, value=h)
-        cell.font = FONT_ANA_WHITE
+    nb_articles  = len(rows_with_omissions)
+    risk_total   = sum(float(r.get("Px_Tot_HT", 0) or 0) for r, _ in rows_with_omissions)
+    per_company  = {
+        c: sum(1 for _, oms in rows_with_omissions if oms[i] == "MISSING")
+        for i, c in enumerate(companies)
+    }
+
+    # ── Ligne 1 : marge haute ───────────────────────────────────────────────
+    ws.row_dimensions[1].height = 12
+
+    # ── Ligne 2 : bandeau titre ──────────────────────────────────────────────
+    nb_total_cols = 3 + len(companies)  # B, C, D + entreprises
+    for c in range(2, 2 + nb_total_cols):
+        ws.cell(row=2, column=c).fill = FILL_SECTION_AUDIT
+    title_cell = ws.cell(row=2, column=2,
+                         value="⚠️  AUDIT DES OMISSIONS — TENSIONS SUR PRIX À 0 €")
+    title_cell.font = Font(name="Tahoma", bold=True, size=16, color="FFFFFF")
+    title_cell.alignment = Alignment(horizontal="left", vertical="center", indent=1)
+    ws.row_dimensions[2].height = 36
+
+    # ── Ligne 3 : résumé statistique (A) ─────────────────────────────────────
+    _fill_stats = PatternFill(start_color="FEF0E6", end_color="FEF0E6", fill_type="solid")
+    for c in range(2, 2 + nb_total_cols):
+        ws.cell(row=3, column=c).fill = _fill_stats
+
+    comp_parts = "  |  ".join(
+        f"{c}: {n} oubli{'s' if n > 1 else ''}"
+        for c, n in per_company.items() if n > 0
+    )
+    summary_text = (
+        f"{nb_articles} article{'s' if nb_articles != 1 else ''} concerné{'s' if nb_articles != 1 else ''}"
+        f"   —   Risque estimé : {risk_total:,.0f} €"
+        + (f"   |   {comp_parts}" if comp_parts else "")
+    )
+    stats_cell = ws.cell(row=3, column=2, value=summary_text)
+    stats_cell.font = Font(name="Tahoma", bold=True, size=11, color="843C0C")
+    stats_cell.alignment = Alignment(horizontal="left", vertical="center", indent=1)
+    ws.row_dimensions[3].height = 26
+
+    # ── Ligne 4 : séparateur ─────────────────────────────────────────────────
+    ws.row_dimensions[4].height = 6
+
+    # ── Ligne 5 : en-têtes colonnes ──────────────────────────────────────────
+    header_row = 5
+    headers = ["CODE", "DESCRIPTION DU POSTE", "MONTANT REF (€)"] + [c.upper() for c in companies]
+    for i, h in enumerate(headers):
+        cell = ws.cell(row=header_row, column=2 + i, value=h)
+        cell.font = Font(name="Tahoma", bold=True, size=10, color="FFFFFF")
         cell.fill = FILL_ANA_HEADER
-        
-    r_idx = m_h + 1
-    sections = merged_df[merged_df["row_type"] == "section_header"]
-    for _, s in sections.iterrows():
-        valid = {c: float(s.get(f"{c}_Px_Tot_HT", 0) or 0) for c in companies if float(s.get(f"{c}_Px_Tot_HT", 0) or 0) > 0}
-        if valid:
-            winner = min(valid, key=valid.get)
-            bg = FILL_ANA_STRIPE if (r_idx - m_h) % 2 == 0 else FILL_ANA_CARD
-            ws.cell(row=r_idx, column=2, value=s["Code"]).fill = bg
-            ws.cell(row=r_idx, column=3, value=winner).fill = bg
-            c_v = ws.cell(row=r_idx, column=4, value=valid[winner])
-            c_v.fill = bg
-            c_v.number_format = MONEY_FORMAT
-            r_idx += 1
+        cell.alignment = Alignment(horizontal="center", vertical="center")
+        cell.border = _BORDER_HEADER
+    ws.row_dimensions[header_row].height = 30
+
+    # E — Freeze panes : titre + stats + séparateur + en-têtes toujours visibles
+    ws.freeze_panes = "B6"
+
+    # ── Lignes 6+ : données ──────────────────────────────────────────────────
+    _font_code    = Font(name="Tahoma", size=10, color="1F4E79", bold=True)
+    _font_desig   = Font(name="Tahoma", size=10, color="333333")
+    _font_montant = Font(name="Tahoma", size=10, color="1F4E79", bold=True)
+    _font_ok      = Font(name="Tahoma", size=11, color="27AE60", bold=True)
+    _font_oubli   = Font(name="Tahoma", size=10, color="C00000", bold=True)
+
+    # C — Fonds colorés par statut
+    _fill_missing = PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid")
+    _fill_ok_cell = PatternFill(start_color="C6EFCE", end_color="C6EFCE", fill_type="solid")
+
+    curr_row = header_row + 1
+    for count, (row, omissions) in enumerate(rows_with_omissions):
+        bg = FILL_ANA_STRIPE if count % 2 == 1 else FILL_ANA_CARD
+
+        # CODE
+        c_code = ws.cell(row=curr_row, column=2, value=row["Code"])
+        c_code.fill = bg
+        c_code.font = _font_code
+        c_code.alignment = Alignment(horizontal="left", vertical="center", indent=1)
+        c_code.border = _BORDER_THIN
+
+        # DESCRIPTION
+        c_desig = ws.cell(row=curr_row, column=3, value=row["Désignation"])
+        c_desig.fill = bg
+        c_desig.font = _font_desig
+        c_desig.alignment = Alignment(horizontal="left", vertical="center",
+                                      wrap_text=True, indent=1)
+        c_desig.border = _BORDER_THIN
+
+        # B — MONTANT REF (€)
+        ref_val = float(row.get("Px_Tot_HT", 0) or 0)
+        c_ref = ws.cell(row=curr_row, column=4, value=ref_val if ref_val else None)
+        c_ref.fill = bg
+        c_ref.font = _font_montant
+        c_ref.number_format = MONEY_FORMAT
+        c_ref.alignment = Alignment(horizontal="right", vertical="center", indent=1)
+        c_ref.border = _BORDER_THIN
+
+        # Statut par entreprise avec fond coloré (C)
+        for i, st in enumerate(omissions):
+            c_st = ws.cell(row=curr_row, column=5 + i,
+                           value="✗  Oubli ?" if st == "MISSING" else "✓")
+            c_st.fill = _fill_missing if st == "MISSING" else _fill_ok_cell
+            c_st.font  = _font_oubli  if st == "MISSING" else _font_ok
+            c_st.alignment = Alignment(horizontal="center", vertical="center")
+            c_st.border = _BORDER_THIN
+
+        ws.row_dimensions[curr_row].height = 32
+        curr_row += 1
+
+    # Message si aucune omission
+    if not rows_with_omissions:
+        c_ok = ws.cell(row=curr_row, column=2,
+                       value="✓  Aucune omission détectée — tous les prix sont renseignés.")
+        c_ok.font = Font(name="Tahoma", size=11, color="27AE60", bold=True)
+        c_ok.alignment = Alignment(horizontal="left", vertical="center", indent=1)
+        ws.row_dimensions[curr_row].height = 30
 
 
 # ---------------------------------------------------------------------------
@@ -477,6 +452,14 @@ def export_tco(
     ws = wb.active
     ws.title = meta.get("sheet_name", "TCO Final")
 
+    # --- Identification du lot : numéro + couleur d'onglet ---
+    _lot_raw = ((meta.get("project_info") or {}).get("lot", "") or "").strip()
+    _lot_match = re.search(r"\b(\d{2})\b", _lot_raw)
+    _lot_num = _lot_match.group(1) if _lot_match else ""
+    _tab_color = _LOT_TAB_COLORS.get(_lot_num, "2F5496")
+    ws.sheet_properties.tabColor = _tab_color
+    log.debug("Lot détecté : '%s' → tab color #%s", _lot_num or "?", _tab_color)
+
     companies = _detect_companies(merged_df)
     log.debug("Entreprises détectées : %s", companies)
 
@@ -490,6 +473,16 @@ def export_tco(
         cell.font = FONT_HEADER
         cell.fill = FILL_HEADER
         cell.alignment = Alignment(horizontal="center")
+
+    # Badge LOT en A1 : fond couleur du lot + texte "LOT XX" en blanc
+    # Conforme aux modèles de référence qui identifient le lot dès la 1ère cellule.
+    if _lot_num:
+        _a1 = ws.cell(row=1, column=1, value=f"LOT {_lot_num}")
+        _a1.font = Font(name="Tahoma", bold=True, size=10, color="FFFFFF")
+        _a1.fill = PatternFill(
+            start_color=_tab_color, end_color=_tab_color, fill_type="solid"
+        )
+        _a1.alignment = Alignment(horizontal="center", vertical="center")
 
     company_start_col = 7
     for comp_idx, comp in enumerate(companies):
@@ -534,25 +527,54 @@ def export_tco(
         if code:
             alert_by_code.setdefault(code, []).append(alert)
 
+    # --- PRE-COMPUTE : sections actives ---
+    # Une section est "active" si elle contient au moins un article/sub_section avec
+    # un montant non nul (template OU entreprise) ou une anomalie détectée.
+    # Les sections 100% vides (ex : 01.3 … 01.10 sans données) sont ignorées à l'export.
+    active_sections: set[str] = set()
+    _cur_sec_scan: str | None = None
+    for _, _row in merged_df.iterrows():
+        _rt = _row["row_type"]
+        if _rt == "section_header":
+            _cur_sec_scan = str(_row.get("Code", "")).strip()
+        elif _rt in ("article", "sub_section") and _cur_sec_scan:
+            _code_scan = str(_row.get("Code", "")).strip()
+            _has_data = False
+            try:
+                _has_data = float(_row.get("Px_Tot_HT", 0) or 0) != 0
+            except (ValueError, TypeError):
+                pass
+            if not _has_data:
+                for _comp in companies:
+                    try:
+                        if float(_row.get(f"{_comp}_Px_Tot_HT", 0) or 0) != 0:
+                            _has_data = True
+                            break
+                    except (ValueError, TypeError):
+                        pass
+            if not _has_data and _code_scan and _code_scan in alert_by_code:
+                _has_data = True
+            if _has_data:
+                active_sections.add(_cur_sec_scan)
+    log.debug("Sections actives (%d) : %s", len(active_sections), sorted(active_sections))
+
     # --- ROWS 3+ : Données ---
     excel_row = 3
-    
+
     # Tracking pour les formules dynamiques
     section_articles: dict[str, list[int]] = {}   # { '01.1': [row_idx, ...] }
     section_total_row: dict[str, int] = {}         # { '01.1': recap_row_idx }
     section_header_rows: dict[str, int] = {}       # { '01.1': section_header_row_idx }
     recap_summary_rows: list[int] = []             # [row_idx, ...]
-    
+
     current_section_code: str | None = None
-    
+    _skip_section: bool = False                    # True si la section courante est vide
+    _recap_header_written: bool = False            # True dès que le bandeau RÉCAPITULATIF a été inséré
+
     # QW-3 : Variables initialisées ici (pas de 'in locals()' fragile)
     ht_row_idx: int | None = None
     tva_row_idx: int | None = None
-    
-    # On fait un premier passage pour identifier les lignes et types si nécessaire ?
-    # Non, on peut faire en un passage car les articles précèdent leurs totaux,
-    # et les totaux précèdent le récap (généralement).
-    
+
     for _, row in merged_df.iterrows():
         row_type = row["row_type"]
         if row_type == "empty":
@@ -562,12 +584,41 @@ def export_tco(
         desig = str(row.get("Désignation", "")).strip()
         desig_lower = desig.lower()
 
-        # Maj de la section courante
+        # Maj de la section courante + détection section vide
         if row_type == "section_header":
             current_section_code = code
-            if current_section_code not in section_articles:
-                section_articles[current_section_code] = []
-            section_header_rows[current_section_code] = excel_row
+            _skip_section = code not in active_sections
+            if not _skip_section:
+                if current_section_code not in section_articles:
+                    section_articles[current_section_code] = []
+                section_header_rows[current_section_code] = excel_row
+
+        # Ignorer les lignes d'une section sans données
+        if _skip_section and row_type in ("section_header", "sub_section", "article", "recap"):
+            continue
+        if row_type == "recap_summary" and code not in active_sections:
+            continue
+
+        # ── BANDEAU "RÉCAPITULATIF" avant la première ligne recap_summary ──
+        if row_type == "recap_summary" and not _recap_header_written:
+            _recap_header_written = True
+            # Ligne vide de séparation
+            for c in range(1, max_col + 1):
+                ws.cell(row=excel_row, column=c).fill = FILL_WHITE
+            ws.row_dimensions[excel_row].height = 8
+            excel_row += 1
+            # Bandeau titre
+            for c in range(1, max_col + 1):
+                cell = ws.cell(row=excel_row, column=c)
+                cell.fill = FILL_RECAP_HEADER
+                cell.font = FONT_RECAP_HEADER
+                cell.border = THIN_BORDER
+            ws.cell(row=excel_row, column=1, value="RÉCAPITULATIF").alignment = Alignment(
+                horizontal="left", vertical="center", indent=1
+            )
+            ws.row_dimensions[excel_row].height = 20
+            excel_row += 1
+        # ────────────────────────────────────────────────────────────────────────
 
         ws.cell(row=excel_row, column=1, value=code)
         ws.cell(row=excel_row, column=2, value=row["Désignation"])
@@ -736,6 +787,18 @@ def export_tco(
             elif re.search(r"montant\s+ttc|(?<!\w)ttc(?!\w)", desig_lower):
                 font, fill = FONT_GRAND_TOTAL, FILL_MONTANT_TTC
 
+        # Sous-totaux intermédiaires (recap de section imbriquée) : 8pt comme la référence.
+        # Un recap de section de niveau ≥ 2 (ex: "01.2.1") a 2 points dans son code
+        # et reçoit une police plus petite que les totaux de section principale (11pt).
+        if row_type == "recap" and code.count(".") >= 2:
+            font = FONT_RECAP_SUB
+
+        # Articles alternatifs : code suffixé par une ou plusieurs lettres après un chiffre
+        # (ex: "01.1A", "10.2.2.1.4.1A", "11.2.1.1.2AA") → orange comme les modèles.
+        if row_type in ("article", "sub_section", "section_header"):
+            if re.search(r"\d[A-Z]+$", code):
+                font = FONT_ALTERNATIVE
+
         # Bordure supérieure épaisse pour les lignes structurelles
         _border = (
             THICK_TOP_BORDER
@@ -751,54 +814,82 @@ def export_tco(
             # sans fill, les cellules transparentes laissent le texte de B déborder
             # sur les colonnes adjacentes pendant le scroll (freeze pane C3).
             cell.fill = fill if fill else FILL_WHITE
+            # Alignement vertical uniforme sur toute la ligne → élimine le décalage
+            # Code (bas par défaut) vs Désignation (top explicite).
+            cell.alignment = Alignment(vertical="center")
 
-        # Indentation hiérarchique + wrap_text sur col B (Désignation).
-        # wrap_text=True empêche le débordement horizontal du texte long vers col C.
-        # vertical="top" aligne le texte en haut quand la hauteur de ligne est fixe.
+        # Col A (Code) : left + center — même ancrage vertical que col B.
+        ws.cell(row=excel_row, column=1).alignment = Alignment(
+            horizontal="left", vertical="center"
+        )
+
+        # Col B (Désignation) : wrap_text pour les textes longs + vertical center
+        # pour rester aligné avec col A quelle que soit la hauteur de ligne.
         _indent = 0
         if row_type == "article":
             _indent = 2
         elif row_type == "sub_section" and font is not FONT_MAIN_TITLE:
             _indent = 1
         ws.cell(row=excel_row, column=2).alignment = Alignment(
-            horizontal="left", indent=_indent, wrap_text=True, vertical="top"
+            horizontal="left", indent=_indent, wrap_text=True, vertical="center"
         )
 
-        if code and code in alert_by_code and row_type == "article":
-            # Détecter la sévérité maximale pour cette ligne
+        if code and code in alert_by_code and row_type in ("article", "sub_section"):
+            # Collecter la sévérité max + les entreprises concernées
             max_severity = "info"
-            for alert in alert_by_code[code]:
-                if alert["type"] == "error":
-                    max_severity = "error"
-                    break
-                if alert["type"] == "warning":
-                    max_severity = "warning"
-            
-            if max_severity == "error":
-                # Mise en rouge de toute la ligne (Critique)
-                for c in range(1, max_col + 1):
-                    ws.cell(row=excel_row, column=c).fill = FILL_ERROR
-            else:
-                # Warning/info : uniquement cellule Commentaire de l'entreprise concernée
-                for alert in alert_by_code[code]:
-                    fill = _get_alert_fill(alert["color"])
-                    if not fill: continue
-                    
-                    target_comp = alert.get("company")
-                    if target_comp and target_comp in companies:
-                        comp_idx = companies.index(target_comp)
-                        # target_col = 7 (début entreprises) + comp_idx*4 + 3 (indice comm)
-                        target_col = 7 + comp_idx * 4 + 3
-                        ws.cell(row=excel_row, column=target_col).fill = fill
-                    else:
-                        # Fallback si pas de compagnie : toutes les colonnes commentaire
-                        c_off = 7
-                        for _ in companies:
-                            ws.cell(row=excel_row, column=c_off + 3).fill = fill
-                            c_off += 4
+            companies_with_errors:   set[str] = set()
+            companies_with_warnings: set[str] = set()
+            has_global_error = False
 
-        # Hauteur ligne de données : 28.5 pt (conforme référence)
-        ws.row_dimensions[excel_row].height = 28.5
+            for alert in alert_by_code[code]:
+                sev  = alert["type"]
+                comp = alert.get("company", "")
+                if sev == "error":
+                    max_severity = "error"
+                    if comp:
+                        companies_with_errors.add(comp)
+                    else:
+                        has_global_error = True
+                elif sev == "warning" and max_severity != "error":
+                    max_severity = "warning"
+                    if comp:
+                        companies_with_warnings.add(comp)
+
+            if max_severity == "error":
+                if has_global_error or not companies_with_errors:
+                    # Erreur non liée à une entreprise → ligne entière
+                    for c in range(1, max_col + 1):
+                        ws.cell(row=excel_row, column=c).fill = FILL_ERROR
+                else:
+                    # Erreur ciblée → seulement les 4 colonnes de l'entreprise fautive
+                    for comp in companies_with_errors:
+                        if comp in companies:
+                            _ci = companies.index(comp)
+                            _sc = 7 + _ci * 4
+                            for c in range(_sc, _sc + 4):
+                                ws.cell(row=excel_row, column=c).fill = FILL_ERROR
+
+            elif max_severity == "warning":
+                if companies_with_warnings:
+                    # Warning ciblé → 4 colonnes de l'entreprise concernée
+                    for comp in companies_with_warnings:
+                        if comp in companies:
+                            _ci = companies.index(comp)
+                            _sc = 7 + _ci * 4
+                            for c in range(_sc, _sc + 4):
+                                ws.cell(row=excel_row, column=c).fill = FILL_WARNING
+                else:
+                    # Fallback global : colonne Commentaire de toutes les entreprises
+                    _c_off = 7
+                    for _ in companies:
+                        ws.cell(row=excel_row, column=_c_off + 3).fill = FILL_WARNING
+                        _c_off += 4
+
+        # Hauteur de ligne dynamique : s'adapte aux désignations longues qui wrappent.
+        # Col B = 56.75 chars → ~55 chars utiles par ligne à 9pt.
+        # Chaque ligne de texte ≈ 16 pt ; plancher 28.5 pt (1 ligne), plafond 80 pt.
+        _n_lines = max(1, -(-len(desig) // 55)) if desig else 1
+        ws.row_dimensions[excel_row].height = max(28.5, min(_n_lines * 16.0, 80.0))
 
         excel_row += 1
 
