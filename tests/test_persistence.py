@@ -71,73 +71,72 @@ class TestProjectNameValidation:
 
 
 class TestSaveLoadRoundtrip:
+    def _create_v3_state(self, name, df, companies=None, tva=0.20):
+        return make_state(
+            active_project={
+                "project_id": "test_id",
+                "project_name": name,
+                "created_at": "now",
+                "lots": [
+                    {
+                        "id": "lot1",
+                        "name": "Lot 1",
+                        "tco_df": df,
+                        "merged_df": None,
+                        "companies": companies or {},
+                        "tva_rate": tva,
+                    }
+                ]
+            },
+            active_lot_id="lot1",
+            step=2,
+        )
+
     def test_save_load_basic(self, tmp_projects_dir, minimal_tco_df):
         """Save puis load → DataFrame et step préservés."""
-        state = make_state(
-            tco_df=minimal_tco_df,
-            merged_df=None,
-            tco_meta={"project_info": {"projet": "TEST"}},
-            company_data={},
-            step=2,
-            all_alerts=[],
-            tva_rate=0.20,
-        )
+        state = self._create_v3_state("test_basic", minimal_tco_df)
         ok, _ = save_project("test_basic", state)
         assert ok is True
 
         new_state = make_state()
         ok, msg = load_project("test_basic", new_state)
         assert ok is True, f"Chargement échoué : {msg}"
-        assert new_state.tco_df is not None
-        assert len(new_state.tco_df) == len(minimal_tco_df)
+        ap = new_state.active_project
+        assert ap is not None
+        assert len(ap["lots"]) == 1
+        assert len(ap["lots"][0]["tco_df"]) == len(minimal_tco_df)
         assert new_state.step == 2
 
     def test_save_load_with_company_data(self, tmp_projects_dir, minimal_tco_df, minimal_dpgf_df):
         """Company data préservée après roundtrip."""
-        state = make_state(
-            tco_df=minimal_tco_df,
-            merged_df=None,
-            tco_meta={},
-            company_data={
-                "ACME": {
-                    "dpgf_df": minimal_dpgf_df,
-                    "parse_alerts": [],
-                    "filename": "acme.xlsx",
-                }
-            },
-            step=3,
-            all_alerts=[],
-            tva_rate=0.20,
-        )
+        comps = {
+            "ACME": {
+                "dpgf_df": minimal_dpgf_df,
+                "parse_alerts": [],
+                "filename": "acme.xlsx",
+            }
+        }
+        state = self._create_v3_state("test_company", minimal_tco_df, comps)
         ok, _ = save_project("test_company", state)
         assert ok is True
 
         new_state = make_state()
         ok, _ = load_project("test_company", new_state)
         assert ok is True
-        assert "ACME" in new_state.company_data
-        assert new_state.company_data["ACME"]["filename"] == "acme.xlsx"
+        loaded_comps = new_state.active_project["lots"][0].get("companies", {})
+        assert "ACME" in loaded_comps
+        assert loaded_comps["ACME"]["filename"] == "acme.xlsx"
 
     def test_decimal_serialized_as_numeric(self, tmp_projects_dir, minimal_tco_df):
         """Les Decimal sont sérialisés comme float (pas comme strings)."""
-        state = make_state(
-            tco_df=minimal_tco_df,
-            merged_df=None,
-            tco_meta={},
-            company_data={},
-            step=1,
-            all_alerts=[],
-            tva_rate=0.20,
-        )
+        state = self._create_v3_state("test_decimal", minimal_tco_df)
         save_project("test_decimal", state)
 
         new_state = make_state()
         load_project("test_decimal", new_state)
 
-        # Les colonnes numériques ne doivent pas être des strings
-        df = new_state.tco_df
+        df = new_state.active_project["lots"][0]["tco_df"]
         assert df is not None
-        # La colonne Px_Tot_HT doit être numérique (float ou Decimal), pas string
         for val in df["Px_Tot_HT"]:
             assert not isinstance(val, str), f"Valeur string détectée : {val!r}"
 
@@ -146,24 +145,15 @@ class TestSaveLoadRoundtrip:
         state = make_state()
         ok, msg = load_project("projet_inexistant_xyz", state)
         assert ok is False
-        # Le message doit indiquer que le fichier n'existe pas
         assert "existe" in msg.lower() or "fichier" in msg.lower()
 
     def test_tva_rate_preserved(self, tmp_projects_dir, minimal_tco_df):
         """Le taux de TVA est préservé après save/load."""
-        state = make_state(
-            tco_df=minimal_tco_df,
-            merged_df=None,
-            tco_meta={},
-            company_data={},
-            step=1,
-            all_alerts=[],
-            tva_rate=0.055,
-        )
+        state = self._create_v3_state("test_tva", minimal_tco_df, tva=0.055)
         save_project("test_tva", state)
         new_state = make_state()
         load_project("test_tva", new_state)
-        assert new_state.tva_rate == pytest.approx(0.055)
+        assert new_state.active_project["lots"][0].get("tva_rate") == pytest.approx(0.055)
 
 
 # ---------------------------------------------------------------------------

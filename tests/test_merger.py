@@ -217,7 +217,7 @@ class TestLotMismatch:
         assert "COMP_LOT2_Px_Tot_HT" not in merged.columns
         error_alerts = [a for a in alerts if a["type"] == "error"]
         assert len(error_alerts) >= 1
-        assert "ne correspond pas" in error_alerts[0]["message"]
+        assert "DPGF ignoré" in error_alerts[0]["message"]
 
 
 # ---------------------------------------------------------------------------
@@ -394,6 +394,19 @@ class TestComputeSectionTotals:
                     "Entete": "Bord_01_Recap",
                     "original_row": 4,
                     "parent_code": "1",
+                    "COMP_Px_Tot_HT": None,
+                },
+                {
+                    "Code": "1",
+                    "Désignation": "Recap Summary Section A",
+                    "row_type": "recap_summary",
+                    "Qu.": D("0"),
+                    "Px_U_HT": D("0"),
+                    "Px_Tot_HT": D("0"),
+                    "U": "",
+                    "Entete": "Bord_01_Recap",
+                    "original_row": 4,
+                    "parent_code": "",
                     "COMP_Px_Tot_HT": None,
                 },
                 {
