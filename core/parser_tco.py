@@ -40,7 +40,7 @@ def _extract_project_info(df: pd.DataFrame, header_row_idx: int) -> dict[str, st
 
     # On parcourt les lignes au-dessus du header
     for r in range(header_row_idx):
-        for c in range(min(5, df.shape[1])):  # On regarde les 5 premières colonnes
+        for c in range(min(8, df.shape[1])):  # On regarde les 8 premières colonnes
             val = str(df.iloc[r, c]).strip().lower()
             if not val:
                 continue

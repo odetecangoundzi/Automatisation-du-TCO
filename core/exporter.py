@@ -81,13 +81,6 @@ FILL_WARNING = PatternFill(start_color="FFE4B5", end_color="FFE4B5", fill_type="
 FILL_NOTE = PatternFill(start_color="FFFFCC", end_color="FFFFCC", fill_type="solid")
 FILL_INFO = PatternFill(start_color="D6EAF8", end_color="D6EAF8", fill_type="solid")
 
-# Styles spécifiques à l'onglet ANALYSE
-FILL_ANA_CARD = PatternFill(start_color="FFFFFF", end_color="FFFFFF", fill_type="solid")
-FILL_ANA_HEADER = PatternFill(start_color="1F4E79", end_color="1F4E79", fill_type="solid")
-FILL_ANA_STRIPE = PatternFill(start_color="F2F2F2", end_color="F2F2F2", fill_type="solid")
-
-FILL_SECTION_AUDIT = PatternFill(start_color="E67E22", end_color="E67E22", fill_type="solid")
-
 FONT_RECAP_HEADER = Font(name="Tahoma", bold=True, size=11, color="FFFFFF")
 
 # Articles alternatifs (code suffixé "A", "AA"…) — orange, conforme modèles de référence
@@ -97,22 +90,49 @@ FONT_ALTERNATIVE = Font(name="Tahoma", bold=True, size=9, color="DC9329")
 FONT_RECAP_SUB = Font(name="Tahoma", bold=True, size=8, color="000000")
 
 # ---------------------------------------------------------------------------
-# Couleurs d'onglet par numéro de lot (palette tirée des modèles TCO de référence)
+# Couleurs d'onglet par numéro de lot (palette cyclique — supporte tous les lots)
 # ---------------------------------------------------------------------------
-_LOT_TAB_COLORS: dict[str, str] = {
-    "01": "548235",  # vert         — VRD / Terrassement / Paysage
-    "02": "843C0C",  # brun         — Gros Œuvre / Fondations
-    "03": "1F4E79",  # bleu foncé   — Charpente
-    "04": "7030A0",  # violet       — Revêtements / Peinture / Signalétique
-    "05": "2E75B6",  # bleu moyen   — Plomberie / CVC
-    "06": "BF8F00",  # or           — Électricité CFO
-    "10": "C00000",  # rouge        — Chauffage / Ventilation / Plomberie
-    "11": "375623",  # vert foncé   — Électricité Photovoltaïque
-    "12": "984807",  # orange foncé — Équipements Cuisine
+_LOT_PALETTE: list[str] = [
+    "548235",  # 01 vert
+    "843C0C",  # 02 brun
+    "1F4E79",  # 03 bleu foncé
+    "7030A0",  # 04 violet
+    "2E75B6",  # 05 bleu moyen
+    "BF8F00",  # 06 or
+    "C00000",  # 07 rouge
+    "375623",  # 08 vert foncé
+    "984807",  # 09 orange foncé
+    "2E4057",  # 10 ardoise
+    "5C4827",  # 11 brun foncé
+    "1C6E52",  # 12 vert émeraude
+]
+
+# Correspondances sémantiques historiques (lots 01-06, 10-12)
+_SEMANTIC_COLORS: dict[str, str] = {
+    "01": "548235",
+    "02": "843C0C",
+    "03": "1F4E79",
+    "04": "7030A0",
+    "05": "2E75B6",
+    "06": "BF8F00",
+    "10": "C00000",
+    "11": "375623",
+    "12": "984807",
 }
 
-FONT_ANA_SECTION = Font(name="Tahoma", bold=True, size=14, color="FFFFFF")
-FONT_ANA_WHITE = Font(name="Tahoma", bold=True, size=10, color="FFFFFF")
+
+def _get_lot_tab_color(lot_num: str) -> str:
+    """Retourne la couleur d'onglet pour un numéro de lot quelconque.
+
+    Les lots 01-06 et 10-12 conservent leurs couleurs historiques.
+    Les autres lots utilisent la palette cyclique (_LOT_PALETTE).
+    """
+    if lot_num in _SEMANTIC_COLORS:
+        return _SEMANTIC_COLORS[lot_num]
+    try:
+        return _LOT_PALETTE[(int(lot_num) - 1) % len(_LOT_PALETTE)]
+    except (ValueError, TypeError):
+        return "2F5496"  # bleu par défaut
 
 THIN_BORDER = Border(
     left=Side(style="thin"),
@@ -277,178 +297,6 @@ def _rows_to_sum_formula(col: str, rows: list[int]) -> str:
     return "=SUM(" + ",".join(parts) + ")"
 
 
-_BORDER_THIN = Border(
-    left=Side(style="thin", color="BFBFBF"),
-    right=Side(style="thin", color="BFBFBF"),
-    top=Side(style="thin", color="BFBFBF"),
-    bottom=Side(style="thin", color="BFBFBF"),
-)
-_BORDER_HEADER = Border(
-    left=Side(style="thin", color="FFFFFF"),
-    right=Side(style="thin", color="FFFFFF"),
-    bottom=Side(style="medium", color="FFFFFF"),
-)
-
-
-def create_analysis_sheet(
-    wb: openpyxl.Workbook,
-    merged_df: pd.DataFrame,
-    companies: list[str],
-) -> None:
-    """
-    Crée l'onglet 'Analyse' (Feuille 2) — Audit des omissions.
-    Colonnes : CODE | DESCRIPTION | MONTANT REF (€) | [entreprises…]
-    Améliorations : résumé stats, montant référence, fond coloré par statut,
-    tri décroissant par montant, freeze panes sur l'en-tête.
-    """
-    ws = wb.create_sheet("Analyse", index=1)
-    ws.sheet_view.showGridLines = False
-    ws.sheet_properties.tabColor = "1F4E79"
-
-    # ── Largeurs colonnes ────────────────────────────────────────────────────
-    ws.column_dimensions["A"].width = 3
-    ws.column_dimensions["B"].width = 18  # CODE
-    ws.column_dimensions["C"].width = 60  # DESCRIPTION DU POSTE
-    ws.column_dimensions["D"].width = 20  # MONTANT REF (€)
-    for i in range(len(companies)):
-        ws.column_dimensions[get_column_letter(5 + i)].width = 22
-
-    # ── Pré-calcul (D + A) ───────────────────────────────────────────────────
-    articles = merged_df[merged_df["row_type"] == "article"]
-    rows_with_omissions: list[tuple] = []
-    for _, row in articles.iterrows():
-        omissions = [
-            ("MISSING" if float(row.get(f"{c}_Px_Tot_HT", 0) or 0) == 0 else "OK")
-            for c in companies
-        ]
-        if "MISSING" in omissions:
-            rows_with_omissions.append((row, omissions))
-
-    # D — Tri par montant référence décroissant (omissions les plus critiques en premier)
-    rows_with_omissions.sort(
-        key=lambda x: float(x[0].get("Px_Tot_HT", 0) or 0),
-        reverse=True,
-    )
-
-    nb_articles = len(rows_with_omissions)
-    risk_total = sum(float(r.get("Px_Tot_HT", 0) or 0) for r, _ in rows_with_omissions)
-    per_company = {
-        c: sum(1 for _, oms in rows_with_omissions if oms[i] == "MISSING")
-        for i, c in enumerate(companies)
-    }
-
-    # ── Ligne 1 : marge haute ───────────────────────────────────────────────
-    ws.row_dimensions[1].height = 12
-
-    # ── Ligne 2 : bandeau titre ──────────────────────────────────────────────
-    nb_total_cols = 3 + len(companies)  # B, C, D + entreprises
-    for c in range(2, 2 + nb_total_cols):
-        ws.cell(row=2, column=c).fill = FILL_SECTION_AUDIT
-    title_cell = ws.cell(row=2, column=2, value="⚠️  AUDIT DES OMISSIONS — TENSIONS SUR PRIX À 0 €")
-    title_cell.font = Font(name="Tahoma", bold=True, size=16, color="FFFFFF")
-    title_cell.alignment = Alignment(horizontal="left", vertical="center", indent=1)
-    ws.row_dimensions[2].height = 36
-
-    # ── Ligne 3 : résumé statistique (A) ─────────────────────────────────────
-    _fill_stats = PatternFill(start_color="FEF0E6", end_color="FEF0E6", fill_type="solid")
-    for c in range(2, 2 + nb_total_cols):
-        ws.cell(row=3, column=c).fill = _fill_stats
-
-    comp_parts = "  |  ".join(
-        f"{c}: {n} oubli{'s' if n > 1 else ''}" for c, n in per_company.items() if n > 0
-    )
-    summary_text = (
-        f"{nb_articles} article{'s' if nb_articles != 1 else ''} concerné{'s' if nb_articles != 1 else ''}"
-        f"   —   Risque estimé : {risk_total:,.0f} €"
-        + (f"   |   {comp_parts}" if comp_parts else "")
-    )
-    stats_cell = ws.cell(row=3, column=2, value=summary_text)
-    stats_cell.font = Font(name="Tahoma", bold=True, size=11, color="843C0C")
-    stats_cell.alignment = Alignment(horizontal="left", vertical="center", indent=1)
-    ws.row_dimensions[3].height = 26
-
-    # ── Ligne 4 : séparateur ─────────────────────────────────────────────────
-    ws.row_dimensions[4].height = 6
-
-    # ── Ligne 5 : en-têtes colonnes ──────────────────────────────────────────
-    header_row = 5
-    headers = ["CODE", "DESCRIPTION DU POSTE", "MONTANT REF (€)"] + [c.upper() for c in companies]
-    for i, h in enumerate(headers):
-        cell = ws.cell(row=header_row, column=2 + i, value=h)
-        cell.font = Font(name="Tahoma", bold=True, size=10, color="FFFFFF")
-        cell.fill = FILL_ANA_HEADER
-        cell.alignment = Alignment(horizontal="center", vertical="center")
-        cell.border = _BORDER_HEADER
-    ws.row_dimensions[header_row].height = 30
-
-    # E — Freeze panes : titre + stats + séparateur + en-têtes toujours visibles
-    ws.freeze_panes = "B6"
-
-    # ── Lignes 6+ : données ──────────────────────────────────────────────────
-    _font_code = Font(name="Tahoma", size=10, color="1F4E79", bold=True)
-    _font_desig = Font(name="Tahoma", size=10, color="333333")
-    _font_montant = Font(name="Tahoma", size=10, color="1F4E79", bold=True)
-    _font_ok = Font(name="Tahoma", size=11, color="27AE60", bold=True)
-    _font_oubli = Font(name="Tahoma", size=10, color="C00000", bold=True)
-
-    # C — Fonds colorés par statut
-    _fill_missing = PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid")
-    _fill_ok_cell = PatternFill(start_color="C6EFCE", end_color="C6EFCE", fill_type="solid")
-
-    curr_row = header_row + 1
-    for count, (row, omissions) in enumerate(rows_with_omissions):
-        bg = FILL_ANA_STRIPE if count % 2 == 1 else FILL_ANA_CARD
-
-        # CODE
-        c_code = ws.cell(row=curr_row, column=2, value=row["Code"])
-        c_code.fill = bg
-        c_code.font = _font_code
-        c_code.alignment = Alignment(horizontal="left", vertical="center", indent=1)
-        c_code.border = _BORDER_THIN
-
-        # DESCRIPTION
-        c_desig = ws.cell(row=curr_row, column=3, value=row["Désignation"])
-        c_desig.fill = bg
-        c_desig.font = _font_desig
-        c_desig.alignment = Alignment(
-            horizontal="left", vertical="center", wrap_text=True, indent=1
-        )
-        c_desig.border = _BORDER_THIN
-
-        # B — MONTANT REF (€)
-        ref_val = float(row.get("Px_Tot_HT", 0) or 0)
-        c_ref = ws.cell(row=curr_row, column=4, value=ref_val if ref_val else None)
-        c_ref.fill = bg
-        c_ref.font = _font_montant
-        c_ref.number_format = MONEY_FORMAT
-        c_ref.alignment = Alignment(horizontal="right", vertical="center", indent=1)
-        c_ref.border = _BORDER_THIN
-
-        # Statut par entreprise avec fond coloré (C)
-        for i, st in enumerate(omissions):
-            c_st = ws.cell(
-                row=curr_row, column=5 + i, value="✗  Oubli ?" if st == "MISSING" else "✓"
-            )
-            c_st.fill = _fill_missing if st == "MISSING" else _fill_ok_cell
-            c_st.font = _font_oubli if st == "MISSING" else _font_ok
-            c_st.alignment = Alignment(horizontal="center", vertical="center")
-            c_st.border = _BORDER_THIN
-
-        ws.row_dimensions[curr_row].height = 32
-        curr_row += 1
-
-    # Message si aucune omission
-    if not rows_with_omissions:
-        c_ok = ws.cell(
-            row=curr_row,
-            column=2,
-            value="✓  Aucune omission détectée — tous les prix sont renseignés.",
-        )
-        c_ok.font = Font(name="Tahoma", size=11, color="27AE60", bold=True)
-        c_ok.alignment = Alignment(horizontal="left", vertical="center", indent=1)
-        ws.row_dimensions[curr_row].height = 30
-
-
 # ---------------------------------------------------------------------------
 # Main exporter
 # ---------------------------------------------------------------------------
@@ -477,28 +325,50 @@ def export_tco(
     _lot_raw = ((meta.get("project_info") or {}).get("lot", "") or "").strip()
     _lot_match = re.search(r"\b(\d{2})\b", _lot_raw)
     _lot_num = _lot_match.group(1) if _lot_match else ""
-    _tab_color = _LOT_TAB_COLORS.get(_lot_num, "2F5496")
+    _tab_color = _get_lot_tab_color(_lot_num) if _lot_num else "2F5496"
     ws.sheet_properties.tabColor = _tab_color
     log.debug("Lot détecté : '%s' → tab color #%s", _lot_num or "?", _tab_color)
 
     companies = _detect_companies(merged_df)
     log.debug("Entreprises détectées : %s", companies)
 
-    # --- ROW 1 : Headers groupés ---
-    ws.cell(row=1, column=2, value="Etudes")
-    ws.cell(row=1, column=3, value=" Estimation")
-    ws.merge_cells(start_row=1, start_column=3, end_row=1, end_column=6)
+    # --- ROW 1-4 : Metadata (MOA, MOE, etc.) ---
+    project_info = meta.get("project_info", {})
+    # Access metadata potentially passed down from the active project via the caller
+    moa = project_info.get("moa", "") 
+    moe = project_info.get("moe", "")
+    devise = project_info.get("devise", "€")
+
+    current_row = 1
+    if moa or moe:
+        ws.cell(row=current_row, column=1, value="Maître d'Ouvrage :").font = Font(bold=True)
+        ws.cell(row=current_row, column=2, value=moa)
+        current_row += 1
+        ws.cell(row=current_row, column=1, value="Maître d'Œuvre :").font = Font(bold=True)
+        ws.cell(row=current_row, column=2, value=moe)
+        current_row += 1
+        ws.cell(row=current_row, column=1, value="Devise :").font = Font(bold=True)
+        ws.cell(row=current_row, column=2, value=devise)
+        current_row += 2 # Add a blank line
+
+    header_row_1 = current_row
+    header_row_2 = current_row + 1
+
+    # --- Header groupés ---
+    ws.cell(row=header_row_1, column=2, value="Etudes")
+    ws.cell(row=header_row_1, column=3, value=" Estimation")
+    ws.merge_cells(start_row=header_row_1, start_column=3, end_row=header_row_1, end_column=6)
     # Col 1 (A1) incluse : fill obligatoire pour bloquer le débordement de B1 au scroll
     for c in range(1, 7):
-        cell = ws.cell(row=1, column=c)
+        cell = ws.cell(row=header_row_1, column=c)
         cell.font = FONT_HEADER
         cell.fill = FILL_HEADER
         cell.alignment = Alignment(horizontal="center")
 
-    # Badge LOT en A1 : fond couleur du lot + texte "LOT XX" en blanc
+    # Badge LOT en première colonne : fond couleur du lot + texte "LOT XX" en blanc
     # Conforme aux modèles de référence qui identifient le lot dès la 1ère cellule.
     if _lot_num:
-        _a1 = ws.cell(row=1, column=1, value=f"LOT {_lot_num}")
+        _a1 = ws.cell(row=header_row_1, column=1, value=f"LOT {_lot_num}")
         _a1.font = Font(name="Tahoma", bold=True, size=10, color="FFFFFF")
         _a1.fill = PatternFill(start_color=_tab_color, end_color=_tab_color, fill_type="solid")
         _a1.alignment = Alignment(horizontal="center", vertical="center")
@@ -507,20 +377,20 @@ def export_tco(
     for comp_idx, comp in enumerate(companies):
         start_col = company_start_col
         end_col = start_col + 3
-        ws.cell(row=1, column=start_col, value=comp)
-        ws.merge_cells(start_row=1, start_column=start_col, end_row=1, end_column=end_col)
+        ws.cell(row=header_row_1, column=start_col, value=comp)
+        ws.merge_cells(start_row=header_row_1, start_column=start_col, end_row=header_row_1, end_column=end_col)
         fill = FILL_COMPANY_COLORS[comp_idx % len(FILL_COMPANY_COLORS)]
         for c in range(start_col, end_col + 1):
-            cell = ws.cell(row=1, column=c)
+            cell = ws.cell(row=header_row_1, column=c)
             cell.font = FONT_HEADER_COMPANY
             cell.fill = fill
             cell.alignment = Alignment(horizontal="center")
         company_start_col = end_col + 1
 
-    # --- ROW 2 : Noms de colonnes ---
+    # --- Noms de colonnes ---
     base_headers = ["Code", "Désignation", "Qu.", "U", "Px U. HT", "Px Tot HT"]
     for i, header in enumerate(base_headers, 1):
-        cell = ws.cell(row=2, column=i, value=header)
+        cell = ws.cell(row=header_row_2, column=i, value=header)
         cell.font = FONT_HEADER
         cell.fill = FILL_HEADER
         cell.alignment = Alignment(horizontal="center")
@@ -530,7 +400,7 @@ def export_tco(
     for comp_idx, _comp in enumerate(companies):
         fill = FILL_COMPANY_COLORS[comp_idx % len(FILL_COMPANY_COLORS)]
         for i, header in enumerate(["Qu.", "Px U. HT", "Px Tot HT", "Commentaire poste"]):
-            cell = ws.cell(row=2, column=col_offset + i, value=header)
+            cell = ws.cell(row=header_row_2, column=col_offset + i, value=header)
             cell.font = FONT_HEADER
             cell.fill = fill
             cell.alignment = Alignment(horizontal="center")
@@ -612,10 +482,9 @@ def export_tco(
                     section_articles[current_section_code] = []
                 section_header_rows[current_section_code] = excel_row
 
-        # Ignorer les lignes d'une section sans données
+        # Ignorer les lignes d'une section sans données (articles/recap internes)
+        # Les recap_summary sont toujours affichés — même à 0 — pour un récapitulatif complet.
         if _skip_section and row_type in ("section_header", "sub_section", "article", "recap"):
-            continue
-        if row_type == "recap_summary" and code not in active_sections:
             continue
 
         # ── BANDEAU "RÉCAPITULATIF" avant la première ligne recap_summary ──
@@ -971,19 +840,13 @@ def export_tco(
         ws.column_dimensions[get_column_letter(_cb + 3)].width = 25.0  # Commentaire
 
     # Hauteurs en-têtes : 14.25 pt (conforme référence)
-    ws.row_dimensions[1].height = 14.25
-    ws.row_dimensions[2].height = 14.25
+    ws.row_dimensions[header_row_1].height = 14.25
+    ws.row_dimensions[header_row_2].height = 14.25
 
     # Freeze panes robuste + corrections anti-chevauchement
-    fix_freeze_panes(ws)  # C3 : lignes 1-2 + cols A-B
-    fix_merged_cells_crossing_freeze(ws)  # retire fusions qui traversent C3
-    prevent_text_overflow(ws, min_row=3, max_col=max_col)  # fill blanc sur cellules vides
-
-    # --- CRÉATION DE L'ONGLET ANALYSE ---
-    try:
-        create_analysis_sheet(wb, merged_df, companies)
-    except Exception as e:
-        log.error("Erreur création onglet Analyse : %s", e)
+    fix_freeze_panes(ws, header_rows=header_row_2, frozen_cols=2)  # C{header_row_2 + 1} : lignes 1-header_row_2 + cols A-B
+    fix_merged_cells_crossing_freeze(ws, header_rows=header_row_2, frozen_cols=2)  # retire fusions qui traversent
+    prevent_text_overflow(ws, min_row=header_row_2 + 1, max_col=max_col)  # fill blanc sur cellules vides
 
     log.info("Workbook prêt. Output_path=%s", output_path)
 

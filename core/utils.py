@@ -55,7 +55,21 @@ def open_excel_file(
     engine_kwargs: dict = {"data_only": True} if engine == "openpyxl" else {}
 
     # Ouverture unique — les feuilles sont listées sans tout lire
-    xl_file = pd.ExcelFile(filepath, engine=engine, engine_kwargs=engine_kwargs)
+    # Fallback xlrd si openpyxl échoue (ex : fichier .xls renommé en .xlsx,
+    # ou fichier généré par un logiciel non conforme OOXML).
+    try:
+        xl_file = pd.ExcelFile(
+            filepath, engine=engine, engine_kwargs=engine_kwargs
+        )
+    except Exception as _first_err:
+        if engine == "openpyxl":
+            try:
+                xl_file = pd.ExcelFile(filepath, engine="xlrd")
+                engine_kwargs = {}  # xlrd n'accepte pas data_only
+            except Exception:
+                raise _first_err
+        else:
+            raise
     all_sheets = xl_file.sheet_names
 
     sheet_name = all_sheets[0]
@@ -206,23 +220,34 @@ def classify_row(
     if "total" in desig and ("section" in desig or "lot" in desig):
         return "recap"
 
-    # 3. Priorité prix : une ligne avec Qu et PU renseignés est forcément un article
-    #    (les section_headers n'ont jamais de prix directs — valeurs calculées)
+    # 3. Priorité prix : une ligne avec Qu et PU renseignés est forcément un article,
+    #    quelle que soit la profondeur du code (2, 3 ou 4 segments).
+    #    Les section_headers n'ont jamais de prix directs (valeurs calculées).
     if has_price and code_str:
         return "article"
 
-    # 4. Détection via Structure du Code (fallback sans prix)
+    # 4. Détection via Structure du Code (fallback sans prix, sans Entete).
+    #    Règle permissive : on ne présume pas qu'un LOT a toujours N niveaux fixes.
+    #    On utilise le nombre de segments uniquement quand has_price est False,
+    #    donc sans risque de confondre un article à 2 segments avec un section_header.
     if code.startswith("total"):
         return "total_text"
 
     parts = [p for p in code.split(".") if p.strip()]
     if parts:
-        if len(parts) <= 2:  # "01" ou "01.1" → section principale
+        n = len(parts)
+        if n == 1:
+            # Code court sans point → section principale (ex : "01", "A", "I")
             return "section_header"
-        if len(parts) == 3:
+        if n == 2:
+            # Ex : "01.1" — sans prix, traité comme section (chapitre intermédiaire)
+            # Cas couverts par has_price=True déjà retournés "article" au-dessus.
+            return "section_header"
+        if n == 3:
+            # Ex : "01.1.2" — sous-section ou article sans prix explicite
             return "sub_section"
-        if len(parts) >= 4:
-            return "article"
+        # n >= 4 → article profondément imbriqué
+        return "article"
 
     # 5. Fallback Vide
     if not code_str and not desig_str:

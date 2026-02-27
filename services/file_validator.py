@@ -12,9 +12,13 @@ from logger import get_logger
 
 log = get_logger(__name__)
 
-# Magic bytes pour ZIP (XLSX/XLSM/XLSB) et OLE (XLS)
+# Magic bytes pour ZIP (XLSX/XLSM/XLSB), OLE (XLS) et PDF
 ZIP_MAGIC = b"PK\x03\x04"
 XLS_MAGIC = b"\xd0\xcf\x11\xe0"
+PDF_MAGIC = b"%PDF"
+
+# Extensions acceptées pour les DPGF entreprise (Excel + PDF)
+DPGF_ALLOWED_EXTENSIONS = {".xlsx", ".xlsm", ".xls", ".xlsb", ".pdf"}
 
 # ALLOWED_EXTENSIONS importé depuis config.py (source unique de vérité)
 
@@ -57,8 +61,10 @@ def validate_magic_bytes(uploaded_file) -> tuple[bool, str]:
         return True, ""
     if header == XLS_MAGIC:
         return True, ""
+    if header[:4] == PDF_MAGIC:
+        return True, ""
 
-    return False, "Le contenu du fichier ne correspond pas à un fichier Excel valide."
+    return False, "Le contenu du fichier ne correspond pas à un fichier Excel ou PDF valide."
 
 
 # Ratio max décompressé/compressé autorisé (protection ZIP bomb)
