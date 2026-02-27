@@ -181,8 +181,27 @@ def parse_dpgf(filepath: str) -> tuple[pd.DataFrame, list[dict]]:
         )
     except Exception as e:
         log.error("Erreur de structure DPGF: %s", e)
+        err_str = str(e)
+        # Message utilisateur plus explicite selon le type d'erreur
+        if "[Content_Types].xml" in err_str or "not a zip file" in err_str.lower():
+            user_msg = (
+                "Fichier Excel malformé ou corrompu. "
+                "Ouvrez-le dans Excel et re-sauvegardez-le (Fichier → Enregistrer sous → .xlsx)."
+            )
+        elif "not supported" in err_str.lower() and "xlsx" in err_str.lower():
+            user_msg = (
+                "Format de fichier non reconnu. "
+                "Sauvegardez le fichier au format .xlsx depuis Excel."
+            )
+        elif "no sheet" in err_str.lower() or "no valid" in err_str.lower():
+            user_msg = (
+                "Aucune feuille valide trouvée (colonne Code/Désignation introuvable). "
+                "Vérifiez que le fichier contient bien un DPGF."
+            )
+        else:
+            user_msg = err_str
         return pd.DataFrame(), [
-            {"type": "error", "color": "red", "row": 0, "code": "", "message": str(e)}
+            {"type": "error", "color": "red", "row": 0, "code": "", "message": user_msg}
         ]
 
     alerts = []

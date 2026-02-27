@@ -125,6 +125,7 @@ def _build_new_row(
         "row_type": "article",
         "original_row": original_row_idx,
         "parent_code": parent_code,
+        "is_extra_line": True,  # Tag to identify lines not in original model
     }
     for col in merged_df.columns:
         if any(suffix in col for suffix in ["_Qu.", "_Px_U_HT", "_Px_Tot_HT", "_Commentaire"]):
@@ -218,30 +219,6 @@ def merge_company_into_tco(
             }
         ]
 
-    # LOT MISMATCH DETECTION
-    dpgf_articles = dpgf_df[dpgf_df["row_type"] == "article"]
-    if not dpgf_articles.empty:
-        first_code = _normalize_code(dpgf_articles.iloc[0]["Code"])
-        if "." in first_code:
-            dpgf_lot_prefix = first_code.split(".")[0]
-            tco_articles = merged_df[merged_df["row_type"] == "article"]
-            if not tco_articles.empty:
-                tco_first_code = _normalize_code(tco_articles.iloc[0]["Code"])
-                if "." in tco_first_code:
-                    tco_lot_prefix = tco_first_code.split(".")[0]
-                    if dpgf_lot_prefix != tco_lot_prefix:
-                        msg = "le DPGF entreprise ne correspond pas au Template"
-                        log.error(
-                            "%s (Lot mismatch: DPGF=%s vs TCO=%s)",
-                            msg,
-                            dpgf_lot_prefix,
-                            tco_lot_prefix,
-                        )
-                        alerts.append(
-                            {"type": "error", "color": "red", "row": 0, "code": "", "message": msg}
-                        )
-                        return tco_df, alerts
-
     # PERF-1 : index TCO codes → O(1) lookup
     tco_code_index: dict[str, int] = {}
     for idx, row in merged_df.iterrows():
@@ -280,6 +257,41 @@ def merge_company_into_tco(
             merged_df.at[idx, col_pu] = dpgf_row["Px_U_HT"]
             merged_df.at[idx, col_tot] = dpgf_row["Px_Tot_HT"]
             merged_df.at[idx, col_com] = dpgf_row.get("Commentaire", "")
+
+            # --- DETECT MISMATCH IN QUANTITY & UNIT ---
+            if dpgf_row["row_type"] == "article":
+                tco_qu = merged_df.at[idx, "Qu."]
+                tco_u = str(merged_df.at[idx, "U"] or "").strip().lower()
+                dpgf_qu = dpgf_row["Qu."]
+                dpgf_u = str(dpgf_row.get("U", "") or "").strip().lower()
+
+                # Check Quantity mismatch (ignoring 0 vs None handling)
+                try:
+                    tco_qu_val = float(tco_qu) if tco_qu is not None else 0.0
+                    dpgf_qu_val = float(dpgf_qu) if dpgf_qu is not None else 0.0
+                    if tco_qu_val != dpgf_qu_val and tco_qu_val > 0:
+                        alerts.append(
+                            {
+                                "type": "warning",
+                                "color": "orange",
+                                "code": code,
+                                "message": f"Quantité divergente par rapport au modèle ({tco_qu} vs {dpgf_qu})",
+                            }
+                        )
+                except (ValueError, TypeError):
+                    pass
+
+                # Check Unit mismatch
+                if tco_u and dpgf_u and tco_u != dpgf_u:
+                    alerts.append(
+                        {
+                            "type": "warning",
+                            "color": "orange",
+                            "code": code,
+                            "message": f"Unité modifiée par rapport au modèle ({tco_u} vs {dpgf_u})",
+                        }
+                    )
+
             matched_count += 1
         else:
             parent_code = ".".join(code.split(".")[:-1])
@@ -378,8 +390,19 @@ def merge_company_into_tco(
         match_rate = matched_count / total_dpgf * 100
         unmatched = total_dpgf - matched_count
         if match_rate < 50:
-            msg = "le DPGF entreprise ne correspond pas au Template"
-            log.error("%s (Match rate critique: %.1f%%)", msg, match_rate)
+            msg = (
+                f"DPGF ignoré — trop peu de codes correspondent au template "
+                f"({matched_count}/{total_dpgf} codes matchés, soit {match_rate:.0f}%). "
+                f"Vérifiez que le bon template TCO est chargé pour ce lot, "
+                f"ou que les codes du DPGF entreprise suivent la même numérotation."
+            )
+            log.error(
+                "Match rate critique %s : %.1f%% (%d/%d)",
+                company_name,
+                match_rate,
+                matched_count,
+                total_dpgf,
+            )
             alerts.insert(
                 0,
                 {
@@ -542,10 +565,12 @@ def compute_section_totals(
             if val is not None:
                 df.at[idx, total_col] = val
 
-    # Passe 4 : Montant HT / TVA / TTC
+    # Passe 4 : Montant HT / TVA / TTC — somme des recap_summary (= lignes du récapitulatif)
+    # Les recap_summary ont été remplis en Passe 3 depuis leur section_header,
+    # donc leur somme reflète exactement ce qui est affiché dans le récapitulatif.
     montant_ht = Decimal("0.0")
     for _idx, row in df.iterrows():
-        if row["row_type"] == "section_header":
+        if row["row_type"] == "recap_summary":
             val = row.get(total_col)
             if val is not None:
                 try:
@@ -562,7 +587,7 @@ def compute_section_totals(
 
 def _compute_ht_tva_ttc_base(df: pd.DataFrame, tva_rate: float = TVA_DEFAULT) -> None:
     """Calcule Montant HT, TVA, TTC pour la colonne de base Px_Tot_HT."""
-    mask = (df["row_type"] == "section_header") & df["Px_Tot_HT"].notna()
+    mask = (df["row_type"] == "recap_summary") & df["Px_Tot_HT"].notna()
     montant_ht = Decimal("0.0")
     for val in df.loc[mask, "Px_Tot_HT"]:
         try:
