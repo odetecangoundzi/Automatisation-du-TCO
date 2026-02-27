@@ -332,7 +332,12 @@ def _explode_multiline_rows(rows: list[list]) -> list[list]:
         # quels indices parmi les N lignes reçoivent ces M valeurs ?
         _alignment_cache: dict[int, list[int]] = {}
 
-        def _get_target_indices(m: int) -> list[int]:
+        def _get_target_indices(
+            m: int,
+            _alignment_cache=_alignment_cache,
+            n_ref=n_ref,
+            code_depths=code_depths,
+        ) -> list[int]:
             """Retourne les m indices de lignes qui doivent recevoir les m sous-valeurs."""
             if m in _alignment_cache:
                 return _alignment_cache[m]
@@ -490,7 +495,7 @@ def _normalize_rows(rows: list[list], alerts: list[dict]) -> pd.DataFrame:
                     commentaire += f" ; {alert['short_error']}"
                 else:
                     commentaire = f"⚠️ {alert['short_error']}"
-            
+
             if (qu_cmt_clean or pu_cmt_clean or tot_cmt_clean):
                 kw_found = any(
                     c.lower() in KEYWORDS or c.lower() in KEYWORDS.values()

@@ -34,13 +34,14 @@ from datetime import datetime
 import streamlit as st
 
 from app import get_full_css
+from app.controllers import normalize_filename as _normalize_filename
+from app.controllers import rebuild_merged_tco as _ctrl_rebuild
 from config import (
     ADMIN_MODE,
     ALLOWED_EXTENSIONS,
     APP_ICON,
     APP_TITLE,
     APP_VERSION,
-    COMPANY_NAME_MAX_LEN,
     MAX_COMPANIES,
     MAX_FILE_SIZE_MB,
     PROJECTS_DIR,
@@ -49,7 +50,7 @@ from config import (
     UPLOAD_DIR,
 )
 from core.exporter import export_tco
-from core.merger import compute_section_totals, merge_all_companies, merge_company_into_tco
+from core.merger import compute_section_totals
 from core.parser_dpgf import parse_dpgf
 from core.parser_dpgf_pdf import parse_dpgf_pdf
 from core.parser_tco import parse_tco
@@ -97,8 +98,6 @@ for k, v in defaults.items():
 
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 os.makedirs(PROJECTS_DIR, exist_ok=True)
-# APP-1 : & et ' retirés — ils peuvent servir à s'échapper de contextes HTML/SQL
-COMPANY_PATTERN = re.compile(r"^[A-Za-zÀ-ÖØ-öø-ÿ0-9 \-_.()]+$")
 # Extensions sans le point, pour le paramètre type= des widgets file_uploader Streamlit
 _UPLOADER_TYPES = [ext.lstrip(".") for ext in ALLOWED_EXTENSIONS]
 # DPGF entreprise : Excel + PDF
@@ -137,8 +136,12 @@ def _active_lot_set(key: str, value) -> None:
 # ---------------------------------------------------------------------------
 
 
-def _safe_save(uploaded_file, allowed_extensions=None):
-    """Sauvegarde un fichier uploadé après validation complète."""
+def _safe_save(uploaded_file, allowed_extensions: set[str] | None = None) -> str | None:
+    """Sauvegarde un fichier uploadé après validation complète (extension, taille, magic bytes).
+
+    Returns:
+        Chemin absolu du fichier sauvegardé, ou None si la validation échoue.
+    """
     # SEC-5 : Validation extension + taille + magic bytes
     is_valid, error_msg = validate_uploaded_file(
         uploaded_file,
@@ -164,58 +167,34 @@ def _safe_save(uploaded_file, allowed_extensions=None):
         return None
 
 
-def _validate_company_name(name):
-    name = name.strip()
-    if not name:
-        return None, "Le nom ne peut pas être vide."
-    if len(name) > COMPANY_NAME_MAX_LEN:
-        return None, f"Nom trop long (max {COMPANY_NAME_MAX_LEN} caractères)."
-    if not COMPANY_PATTERN.match(name):
-        return None, "Nom invalide (caractères spéciaux interdits)."
-    return name, None
+def rebuild_merged_tco(tva_rate=TVA_DEFAULT, new_companies: list[str] | None = None) -> None:
+    """Wrapper Streamlit : délègue au controller et écrit dans le lot actif.
 
-
-def rebuild_merged_tco(tva_rate=TVA_DEFAULT, new_companies: list[str] | None = None):
-    """Reconstruit ou met a jour le TCO fusionne pour le lot actif.
-
-    Si new_companies est fourni ET que merged_df existe deja,
-    seules ces nouvelles entreprises sont ajoutees (fusion incrementale O(1)
-    au lieu de tout refusionner depuis zero).
-    Si new_companies est None ou merged_df absent, reconstruction complete.
+    Appelle app.controllers.rebuild_merged_tco() (pur Python, testable)
+    puis met à jour session_state via _active_lot_set().
     """
     tco_df = _active_lot_get("tco_df")
     if tco_df is None:
         return
 
-    companies = _active_lot_get("companies", {})
-    merged_df_cur = _active_lot_get("merged_df")
-
-    if new_companies and merged_df_cur is not None:
-        # Fusion incrementale : ajoute uniquement les nouvelles entreprises
-        merged = merged_df_cur.copy()
-        all_alerts = list(_active_lot_get("all_alerts") or [])
-        for comp_name in new_companies:
-            comp_data = companies[comp_name]
-            merged, merge_alerts = merge_company_into_tco(
-                merged, comp_data["dpgf_df"], comp_name, tva_rate=tva_rate
-            )
-            for alert in comp_data.get("parse_alerts", []):
-                alert["company"] = comp_name
-            for alert in merge_alerts:
-                alert["company"] = comp_name
-            all_alerts.extend(comp_data.get("parse_alerts", []))
-            all_alerts.extend(merge_alerts)
-        _active_lot_set("merged_df", merged)
-        _active_lot_set("all_alerts", all_alerts)
+    merged_df, alerts = _ctrl_rebuild(
+        tco_df,
+        _active_lot_get("companies", {}),
+        tva_rate,
+        merged_df=_active_lot_get("merged_df"),
+        new_companies=new_companies,
+    )
+    _active_lot_set("merged_df", merged_df)
+    if new_companies:
+        existing = list(_active_lot_get("all_alerts") or [])
+        _active_lot_set("all_alerts", existing + alerts)
     else:
-        # Reconstruction complete depuis le TCO de base
-        merged_df, all_alerts = merge_all_companies(
-            tco_df,
-            companies,
-            tva_rate=tva_rate,
-        )
-        _active_lot_set("merged_df", merged_df)
-        _active_lot_set("all_alerts", all_alerts)
+        _active_lot_set("all_alerts", alerts)
+
+
+def _on_export_click() -> None:
+    """Callback bouton téléchargement — marque l'export comme effectué."""
+    st.session_state.export_done = True
 
 
 @st.cache_data(ttl=5)
@@ -224,7 +203,8 @@ def _cached_list_projects() -> list[str]:
     return list_projects()
 
 
-def display_alerts(alerts, title="Alertes"):
+def display_alerts(alerts: list[dict], title: str = "Alertes") -> None:
+    """Affiche les alertes dans un expander Streamlit avec icône par sévérité."""
     if not alerts:
         st.success("✅ Aucune anomalie détectée")
         return
@@ -235,7 +215,8 @@ def display_alerts(alerts, title="Alertes"):
             st.write(f"{icon} **{a.get('code', '')}** — {a.get('message', '')}")
 
 
-def display_preview(df, title="Aperçu"):
+def display_preview(df, title: str = "Aperçu") -> None:
+    """Affiche un aperçu du DataFrame TCO en masquant les colonnes internes."""
     hidden = {"Entete", "row_type", "original_row", "parent_code"}
     cols = [c for c in df.columns if c not in hidden]
     hidden_types = {"empty", "recap", "recap_summary", "total_line", "total_text"}
@@ -244,8 +225,8 @@ def display_preview(df, title="Aperçu"):
     st.dataframe(visible, width="stretch", hide_index=True, height=500)
 
 
-def _cleanup_file(path):
-    """Supprime un fichier temporaire de manière sûre."""
+def _cleanup_file(path: str) -> None:
+    """Supprime un fichier temporaire de manière sûre (SEC-3)."""
     try:
         os.remove(path)
     except OSError as e:
@@ -718,7 +699,15 @@ if st.session_state.step >= 2:
                     if path:
                         with st.spinner(f"Fusion de {company_name}..."):
                             try:
-                                if dpgf_file.name.lower().endswith(".pdf"):
+                                # Détection du type réel par magic bytes (prioritaire
+                                # sur l'extension — certains PDF sont renommés .xlsx)
+                                _is_pdf = False
+                                try:
+                                    with open(path, "rb") as _fh:
+                                        _is_pdf = _fh.read(4) == b"%PDF"
+                                except OSError:
+                                    _is_pdf = dpgf_file.name.lower().endswith(".pdf")
+                                if _is_pdf:
                                     dpgf_df, parse_alerts = parse_dpgf_pdf(path)
                                 else:
                                     dpgf_df, parse_alerts = parse_dpgf(path)
@@ -859,12 +848,8 @@ if st.session_state.step >= 3:
     if not _lot_raw:
         _lot_raw = _active_lot_get("lot_label", "") or ""
 
-    def _normalize(s: str) -> str:
-        norm = re.sub(r"[^A-Z0-9]", "_", s.upper())
-        return re.sub(r"_+", "_", norm).strip("_")
-
-    _proj_norm = _normalize(_proj_raw)
-    _lot_norm = _normalize(_lot_raw)
+    _proj_norm = _normalize_filename(_proj_raw)
+    _lot_norm = _normalize_filename(_lot_raw)
 
     if _proj_norm and _lot_norm:
         filename = f"TCO_FINAL_{_proj_norm}_{_lot_norm}.xlsx"
@@ -889,16 +874,13 @@ if st.session_state.step >= 3:
                     tva_rate=_active_lot_get("tva_rate", TVA_DEFAULT),
                 )
 
-        def on_export_click():
-            st.session_state.export_done = True
-
         st.download_button(
             label="📥 Exporter le TCO Final (.xlsx)",
             data=st.session_state.export_buffer,
             file_name=filename,
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             type="primary",
-            on_click=on_export_click,
+            on_click=_on_export_click,
             width="stretch",
         )
 
