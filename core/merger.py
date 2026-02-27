@@ -257,14 +257,14 @@ def merge_company_into_tco(
             merged_df.at[idx, col_pu] = dpgf_row["Px_U_HT"]
             merged_df.at[idx, col_tot] = dpgf_row["Px_Tot_HT"]
             merged_df.at[idx, col_com] = dpgf_row.get("Commentaire", "")
-            
+
             # --- DETECT MISMATCH IN QUANTITY & UNIT ---
             if dpgf_row["row_type"] == "article":
                 tco_qu = merged_df.at[idx, "Qu."]
                 tco_u = str(merged_df.at[idx, "U"] or "").strip().lower()
                 dpgf_qu = dpgf_row["Qu."]
                 dpgf_u = str(dpgf_row.get("U", "") or "").strip().lower()
-                
+
                 # Check Quantity mismatch (ignoring 0 vs None handling)
                 try:
                     tco_qu_val = float(tco_qu) if tco_qu is not None else 0.0
@@ -278,7 +278,7 @@ def merge_company_into_tco(
                         })
                 except (ValueError, TypeError):
                     pass
-                
+
                 # Check Unit mismatch
                 if tco_u and dpgf_u and tco_u != dpgf_u:
                     alerts.append({

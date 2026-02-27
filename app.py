@@ -116,7 +116,7 @@ def _get_active_lot() -> dict | None:
     lot_id = st.session_state.get("active_lot_id")
     if not proj or not lot_id:
         return None
-    return next((l for l in proj.get("lots", []) if l.get("lot_id") == lot_id), None)
+    return next((lot for lot in proj.get("lots", []) if lot.get("lot_id") == lot_id), None)
 
 
 def _active_lot_get(key: str, default=None):
@@ -401,7 +401,7 @@ def _render_project_lots_view(proj: dict) -> None:
                     st.rerun()
             with col_del:
                 if st.button("🗑️", key=f"del_lot_{lot['lot_id']}", help=f"Supprimer {label}"):
-                    proj["lots"] = [l for l in lots if l["lot_id"] != lot["lot_id"]]
+                    proj["lots"] = [lt for lt in lots if lt["lot_id"] != lot["lot_id"]]
                     if st.session_state.active_lot_id == lot["lot_id"]:
                         st.session_state.active_lot_id = None
                     st.rerun()
@@ -466,7 +466,7 @@ if st.session_state.step == 0:
                     placeholder="Ex: Chantier Bordeaux",
                     key="landing_new_proj_name",
                 )
-                
+
 
                 st.markdown("<div style='height: 10px;'></div>", unsafe_allow_html=True)
                 if st.button("🚀 Creer le projet", type="primary", width="stretch"):

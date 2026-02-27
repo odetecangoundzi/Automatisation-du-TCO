@@ -67,7 +67,7 @@ def open_excel_file(
                 xl_file = pd.ExcelFile(filepath, engine="xlrd")
                 engine_kwargs = {}  # xlrd n'accepte pas data_only
             except Exception:
-                raise _first_err
+                raise _first_err from None
         else:
             raise
     all_sheets = xl_file.sheet_names

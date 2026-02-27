@@ -10,8 +10,7 @@ Retourne (DataFrame, list[dict]) — interface identique à parse_dpgf().
 
 from __future__ import annotations
 
-import re
-from decimal import Decimal, ROUND_HALF_UP
+from decimal import Decimal
 
 import pandas as pd
 
@@ -209,8 +208,8 @@ def _extract_pymupdf(filepath: str) -> list[list] | None:
             bounds.append((left, right))
 
         def _col_for(x0: float) -> int:
-            for ci, (l, r) in enumerate(bounds):
-                if l <= x0 < r:
+            for ci, (left_bound, right_bound) in enumerate(bounds):
+                if left_bound <= x0 < right_bound:
                     return ci
             # Hors bornes → colonne la plus proche
             return min(range(n_cols), key=lambda i: abs(col_x[i] - x0))
@@ -279,7 +278,7 @@ def _normalize_rows(rows: list[list], alerts: list[dict]) -> pd.DataFrame:
         if not row:
             continue
 
-        def _get(key: str) -> object:
+        def _get(key: str, row=row) -> object:
             idx = col_map.get(key)
             if idx is None or idx >= len(row):
                 return None

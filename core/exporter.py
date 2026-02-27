@@ -335,7 +335,7 @@ def export_tco(
     # --- ROW 1-4 : Metadata (MOA, MOE, etc.) ---
     project_info = meta.get("project_info", {})
     # Access metadata potentially passed down from the active project via the caller
-    moa = project_info.get("moa", "") 
+    moa = project_info.get("moa", "")
     moe = project_info.get("moe", "")
     devise = project_info.get("devise", "€")
 
