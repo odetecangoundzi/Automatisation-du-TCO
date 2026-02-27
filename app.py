@@ -88,6 +88,7 @@ defaults = {
     "upload_counter": 0,
     "tva_rate": TVA_DEFAULT,
     "confirm_remove": None,  # UX-4 : stocke le nom de l'entreprise à supprimer
+    "confirm_shutdown": False,  # ADMIN : confirmation deux étapes avant arrêt serveur
     "dark_mode": False,
     "export_done": False,
     "_flash_msg": None,  # P12 : message court affiché après rerun
@@ -278,14 +279,28 @@ if st.session_state.step > 0:
         st.markdown("---")
 
         # Fermer l'application — réservé à l'administrateur
+        # Confirmation deux étapes : le warning s'affiche AVANT le kill
+        # (st.warning() est bufférisé et ne s'affiche pas si os.kill() est appelé
+        # dans le même cycle — d'où le rerun intermédiaire)
         if ADMIN_MODE:
-            if st.button(
-                "❌ Fermer l'application",
-                use_container_width=True,
-                help="Arrête le serveur Streamlit (admin uniquement)",
-            ):
-                st.warning("Arrêt de l'application...")
-                os.kill(os.getpid(), signal.SIGTERM)
+            if not st.session_state.confirm_shutdown:
+                if st.button(
+                    "❌ Fermer l'application",
+                    use_container_width=True,
+                    help="Arrête le serveur Streamlit (admin uniquement)",
+                ):
+                    st.session_state.confirm_shutdown = True
+                    st.rerun()
+            else:
+                st.warning("⚠️ Arrêt du serveur — sauvegardez vos données.")
+                col_ok, col_no = st.columns(2)
+                with col_ok:
+                    if st.button("✅ Confirmer", use_container_width=True):
+                        os.kill(os.getpid(), signal.SIGTERM)
+                with col_no:
+                    if st.button("✗ Annuler", use_container_width=True):
+                        st.session_state.confirm_shutdown = False
+                        st.rerun()
 
 is_dark = st.session_state.dark_mode
 
