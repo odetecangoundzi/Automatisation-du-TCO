@@ -130,7 +130,9 @@ def _extract_pdfplumber(filepath: str) -> list[list] | None:
                 return []
             # Déduire les délimitations des colonnes à partir du 1er tableau trouvé
             first_table = tables[0]
-            v_edges = sorted(list(set([v[0] for v in first_table.cells] + [v[2] for v in first_table.cells])))
+            v_edges = sorted(
+                list(set([v[0] for v in first_table.cells] + [v[2] for v in first_table.cells]))
+            )
             settings = {
                 "vertical_strategy": "explicit",
                 "explicit_vertical_lines": v_edges,
@@ -152,7 +154,11 @@ def _extract_pdfplumber(filepath: str) -> list[list] | None:
         best_rows = rows_lines
         if rows_explicit and len(rows_explicit) > len(rows_lines) * 1.5:
             if _find_header_idx(rows_explicit) is not None:
-                log.info("pdfplumber explicit : %d lignes (vs %d lines)", len(rows_explicit), len(rows_lines))
+                log.info(
+                    "pdfplumber explicit : %d lignes (vs %d lines)",
+                    len(rows_explicit),
+                    len(rows_lines),
+                )
                 best_rows = rows_explicit
 
         if best_rows and _find_header_idx(best_rows) is not None:
@@ -488,7 +494,9 @@ def _normalize_rows(rows: list[list], alerts: list[dict]) -> pd.DataFrame:
         pu_cmt_clean = pu_cmt if pu_cmt.strip().lower() not in _curr else ""
         tot_cmt_clean = tot_cmt if tot_cmt.strip().lower() not in _curr else ""
         if row_type == "article" and code_str:
-            alert = _check_total_coherence(qu_val, pu_val, tot_val, header_idx + 1 + offset + 1, code_str)
+            alert = _check_total_coherence(
+                qu_val, pu_val, tot_val, header_idx + 1 + offset + 1, code_str
+            )
             if alert:
                 alerts.append(alert)
                 if commentaire:
@@ -496,7 +504,7 @@ def _normalize_rows(rows: list[list], alerts: list[dict]) -> pd.DataFrame:
                 else:
                     commentaire = f"⚠️ {alert['short_error']}"
 
-            if (qu_cmt_clean or pu_cmt_clean or tot_cmt_clean):
+            if qu_cmt_clean or pu_cmt_clean or tot_cmt_clean:
                 kw_found = any(
                     c.lower() in KEYWORDS or c.lower() in KEYWORDS.values()
                     for c in [qu_cmt, pu_cmt, tot_cmt]

@@ -48,7 +48,9 @@ FONT_HEADER = Font(name="Tahoma", bold=True, size=10, color="FFFFFF")
 FONT_HEADER_COMPANY = Font(name="Tahoma", bold=True, size=10, color="FFFFFF")
 FONT_SECTION = Font(name="Tahoma", bold=True, size=11, color="AC2C18")  # rouge foncé — référence
 FONT_RECAP = Font(name="Tahoma", bold=True, size=11, color="000000")  # noir gras
-FONT_RECAP_HEADER_LARGE = Font(name="Tahoma", bold=True, size=13, color="FFFFFF")  # blanc gras grand — bandeau récap
+FONT_RECAP_HEADER_LARGE = Font(
+    name="Tahoma", bold=True, size=13, color="FFFFFF"
+)  # blanc gras grand — bandeau récap
 FONT_TOTAL = Font(name="Tahoma", bold=True, size=11, color="000000")  # noir gras
 FONT_GRAND_TOTAL = Font(name="Tahoma", bold=True, size=11, color="FFFFFF")  # blanc sur fond foncé
 FONT_DATA = Font(name="Tahoma", size=9, color="000000")
@@ -67,11 +69,21 @@ FILL_COMPANY_COLORS = [
 # Appliquées aux colonnes de chaque entreprise dans les lignes recap_summary
 # pour créer un lien visuel entre en-têtes et totaux du récapitulatif.
 FILL_COMPANY_TINTS = [
-    PatternFill(start_color="D9E8D1", end_color="D9E8D1", fill_type="solid"),  # vert clair  (548235)
-    PatternFill(start_color="FFF0CC", end_color="FFF0CC", fill_type="solid"),  # or clair    (BF8F00)
-    PatternFill(start_color="F5DDD5", end_color="F5DDD5", fill_type="solid"),  # brun clair  (843C0C)
-    PatternFill(start_color="EAD9F5", end_color="EAD9F5", fill_type="solid"),  # violet clair(7030A0)
-    PatternFill(start_color="FAD9D9", end_color="FAD9D9", fill_type="solid"),  # rouge clair  (C00000)
+    PatternFill(
+        start_color="D9E8D1", end_color="D9E8D1", fill_type="solid"
+    ),  # vert clair  (548235)
+    PatternFill(
+        start_color="FFF0CC", end_color="FFF0CC", fill_type="solid"
+    ),  # or clair    (BF8F00)
+    PatternFill(
+        start_color="F5DDD5", end_color="F5DDD5", fill_type="solid"
+    ),  # brun clair  (843C0C)
+    PatternFill(
+        start_color="EAD9F5", end_color="EAD9F5", fill_type="solid"
+    ),  # violet clair(7030A0)
+    PatternFill(
+        start_color="FAD9D9", end_color="FAD9D9", fill_type="solid"
+    ),  # rouge clair  (C00000)
 ]
 
 # Lignes de données : fond blanc pur (conforme référence — hiérarchie via couleur police)
@@ -560,9 +572,7 @@ def export_tco(
             for c in range(1, max_col + 1):
                 cell = ws.cell(row=excel_row, column=c)
                 cell.fill = FILL_RECAP_SEPARATOR
-                cell.border = Border(
-                    top=Side(style="medium"), bottom=Side(style="medium")
-                )
+                cell.border = Border(top=Side(style="medium"), bottom=Side(style="medium"))
             ws.row_dimensions[excel_row].height = 4
             excel_row += 1
             # Bandeau titre principal — fond marine, texte blanc large et centré
@@ -572,9 +582,7 @@ def export_tco(
                 cell.font = FONT_RECAP_HEADER_LARGE
                 cell.border = MEDIUM_BORDER
             title_cell = ws.cell(row=excel_row, column=1, value="  📋  RÉCAPITULATIF")
-            title_cell.alignment = Alignment(
-                horizontal="left", vertical="center"
-            )
+            title_cell.alignment = Alignment(horizontal="left", vertical="center")
             ws.row_dimensions[excel_row].height = 28
             excel_row += 1
         # ────────────────────────────────────────────────────────────────────────
@@ -622,9 +630,7 @@ def export_tco(
             # Priorité : recap_summary_rows, sinon section_total_row (fallback PDF)
             _sum_rows = recap_summary_rows or list(section_total_row.values())
             if _sum_rows:
-                ws.cell(
-                    row=excel_row, column=6, value=_rows_to_sum_formula("F", _sum_rows)
-                )
+                ws.cell(row=excel_row, column=6, value=_rows_to_sum_formula("F", _sum_rows))
             else:
                 ws.cell(row=excel_row, column=6, value=row.get("Px_Tot_HT"))
             ht_row_idx = excel_row

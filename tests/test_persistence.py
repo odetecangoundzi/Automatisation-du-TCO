@@ -86,7 +86,7 @@ class TestSaveLoadRoundtrip:
                         "companies": companies or {},
                         "tva_rate": tva,
                     }
-                ]
+                ],
             },
             active_lot_id="lot1",
             step=2,

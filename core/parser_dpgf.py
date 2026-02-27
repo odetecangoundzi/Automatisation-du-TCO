@@ -151,7 +151,7 @@ def _check_total_coherence(
                             f"{expected} ≠ {actual} "
                             f"(écart {abs_diff} €)"
                         ),
-                        "short_error": f"erreur de calcul (Écart de {abs_diff} €)"
+                        "short_error": f"erreur de calcul (Écart de {abs_diff} €)",
                     }
         except (ValueError, TypeError):  # noqa: S110
             pass

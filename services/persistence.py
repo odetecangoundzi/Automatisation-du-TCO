@@ -29,6 +29,7 @@ class _SessionLike(Protocol):
 
     def __setattr__(self, name: str, value: Any) -> None: ...
 
+
 log = get_logger(__name__)
 
 # Extension des fichiers projet (nouvelle version)
@@ -256,7 +257,9 @@ def load_project(name: str, session_state: _SessionLike) -> tuple[bool, str]:
         return False, f"Erreur de lecture : {e}"
 
 
-def _migrate_legacy_project(name: str, legacy_path: str, session_state: _SessionLike) -> tuple[bool, str]:
+def _migrate_legacy_project(
+    name: str, legacy_path: str, session_state: _SessionLike
+) -> tuple[bool, str]:
     """
     L'ancien format pickle (.tco) n'est plus supporté pour des raisons de sécurité.
 
