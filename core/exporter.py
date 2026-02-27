@@ -28,6 +28,19 @@ log = get_logger(__name__)
 
 
 # ---------------------------------------------------------------------------
+# Regex pré-compilées — évite la recompilation à chaque ligne exportée
+# (la boucle principale iterrows() appelle ces patterns sur chaque ligne)
+# ---------------------------------------------------------------------------
+
+_RE_MONTANT_HT = re.compile(r"montant\s+ht")
+_RE_TVA_ONLY = re.compile(r"\btva\b")
+_RE_HT_ONLY = re.compile(r"\bht\b")
+_RE_MONTANT_TTC = re.compile(r"montant\s+ttc|(?<!\w)ttc(?!\w)")
+_RE_ALT_ARTICLE = re.compile(r"\d[A-Z]+$")
+_RE_LOT_NUM = re.compile(r"\b(\d{2})\b")
+
+
+# ---------------------------------------------------------------------------
 # Constantes de style
 # ---------------------------------------------------------------------------
 
@@ -35,6 +48,7 @@ FONT_HEADER = Font(name="Tahoma", bold=True, size=10, color="FFFFFF")
 FONT_HEADER_COMPANY = Font(name="Tahoma", bold=True, size=10, color="FFFFFF")
 FONT_SECTION = Font(name="Tahoma", bold=True, size=11, color="AC2C18")  # rouge foncé — référence
 FONT_RECAP = Font(name="Tahoma", bold=True, size=11, color="000000")  # noir gras
+FONT_RECAP_HEADER_LARGE = Font(name="Tahoma", bold=True, size=13, color="FFFFFF")  # blanc gras grand — bandeau récap
 FONT_TOTAL = Font(name="Tahoma", bold=True, size=11, color="000000")  # noir gras
 FONT_GRAND_TOTAL = Font(name="Tahoma", bold=True, size=11, color="FFFFFF")  # blanc sur fond foncé
 FONT_DATA = Font(name="Tahoma", size=9, color="000000")
@@ -49,17 +63,33 @@ FILL_COMPANY_COLORS = [
     PatternFill(start_color="C00000", end_color="C00000", fill_type="solid"),
 ]
 
+# Teintes claires (≈15 % opacité) des couleurs entreprises.
+# Appliquées aux colonnes de chaque entreprise dans les lignes recap_summary
+# pour créer un lien visuel entre en-têtes et totaux du récapitulatif.
+FILL_COMPANY_TINTS = [
+    PatternFill(start_color="D9E8D1", end_color="D9E8D1", fill_type="solid"),  # vert clair  (548235)
+    PatternFill(start_color="FFF0CC", end_color="FFF0CC", fill_type="solid"),  # or clair    (BF8F00)
+    PatternFill(start_color="F5DDD5", end_color="F5DDD5", fill_type="solid"),  # brun clair  (843C0C)
+    PatternFill(start_color="EAD9F5", end_color="EAD9F5", fill_type="solid"),  # violet clair(7030A0)
+    PatternFill(start_color="FAD9D9", end_color="FAD9D9", fill_type="solid"),  # rouge clair  (C00000)
+]
+
 # Lignes de données : fond blanc pur (conforme référence — hiérarchie via couleur police)
 # Format ARGB 8 chars : "FFFFFFFF" = blanc opaque — correspond à fgColor.rgb de la référence
 FILL_WHITE = PatternFill(start_color="FFFFFF", end_color="FFFFFF", fill_type="solid")
 FILL_SECTION = FILL_WHITE
-FILL_RECAP = FILL_WHITE
-FILL_RECAP_SUMMARY = PatternFill(  # bleu clair — distingue la section récapitulatif
-    start_color="D6E4F7", end_color="D6E4F7", fill_type="solid"
+FILL_RECAP = PatternFill(  # bleu ciel doux — lignes recap de section
+    start_color="DAEAF8", end_color="DAEAF8", fill_type="solid"
+)
+FILL_RECAP_SUMMARY = PatternFill(  # bleu ciel doux — lignes du récapitulatif
+    start_color="DAEAF8", end_color="DAEAF8", fill_type="solid"
 )
 FILL_TOTAL_LINE = FILL_WHITE
 FILL_RECAP_HEADER = PatternFill(  # marine foncé — bandeau titre récapitulatif
     start_color="17375E", end_color="17375E", fill_type="solid"
+)
+FILL_RECAP_SEPARATOR = PatternFill(  # gris anthracite — ligne de séparation avant récap
+    start_color="2F5496", end_color="2F5496", fill_type="solid"
 )
 FILL_SUB_SECTION = FILL_WHITE
 
@@ -141,6 +171,29 @@ THIN_BORDER = Border(
     top=Side(style="thin"),
     bottom=Side(style="thin"),
 )
+
+# Bordure épaisse — utilisée pour encadrer les lignes du récapitulatif
+MEDIUM_BORDER = Border(
+    left=Side(style="medium"),
+    right=Side(style="medium"),
+    top=Side(style="medium"),
+    bottom=Side(style="medium"),
+)
+# Bordure top épaisse + rest thin — délimite la 1ère ligne recap_summary
+RECAP_TOP_BORDER = Border(
+    left=Side(style="medium"),
+    right=Side(style="medium"),
+    top=Side(style="medium"),
+    bottom=Side(style="thin"),
+)
+# Bordure bottom épaisse — délimite la dernière ligne recap_summary
+RECAP_BOTTOM_BORDER = Border(
+    left=Side(style="medium"),
+    right=Side(style="medium"),
+    top=Side(style="thin"),
+    bottom=Side(style="medium"),
+)
+
 # Formats numériques — format exact de la référence
 MONEY_FORMAT = r"###,###,###,##0.00\ \€;\-###,###,###,##0.00\ \€;"
 QTY_FORMAT = r"###,###,###,##0.00;\-###,###,###,##0.00;"
@@ -324,7 +377,7 @@ def export_tco(
 
     # --- Identification du lot : numéro + couleur d'onglet ---
     _lot_raw = ((meta.get("project_info") or {}).get("lot", "") or "").strip()
-    _lot_match = re.search(r"\b(\d{2})\b", _lot_raw)
+    _lot_match = _RE_LOT_NUM.search(_lot_raw)
     _lot_num = _lot_match.group(1) if _lot_match else ""
     _tab_color = _get_lot_tab_color(_lot_num) if _lot_num else "2F5496"
     ws.sheet_properties.tabColor = _tab_color
@@ -478,12 +531,17 @@ def export_tco(
 
         # Maj de la section courante + détection section vide
         if row_type == "section_header":
-            current_section_code = code
-            _skip_section = code not in active_sections
-            if not _skip_section:
-                if current_section_code not in section_articles:
-                    section_articles[current_section_code] = []
-                section_header_rows[current_section_code] = excel_row
+            # Si ce code a déjà été vu comme section_header, c'est la version
+            # récapitulatif (apparition en fin de TCO) → le traiter comme recap_summary.
+            if code in section_header_rows:
+                row_type = "recap_summary"
+            else:
+                current_section_code = code
+                _skip_section = code not in active_sections
+                if not _skip_section:
+                    if current_section_code not in section_articles:
+                        section_articles[current_section_code] = []
+                    section_header_rows[current_section_code] = excel_row
 
         # Ignorer les lignes d'une section sans données (articles/recap internes)
         # Les recap_summary sont toujours affichés — même à 0 — pour un récapitulatif complet.
@@ -493,21 +551,31 @@ def export_tco(
         # ── BANDEAU "RÉCAPITULATIF" avant la première ligne recap_summary ──
         if row_type == "recap_summary" and not _recap_header_written:
             _recap_header_written = True
-            # Ligne vide de séparation
+            # Ligne de séparation fine (blanche)
             for c in range(1, max_col + 1):
                 ws.cell(row=excel_row, column=c).fill = FILL_WHITE
-            ws.row_dimensions[excel_row].height = 8
+            ws.row_dimensions[excel_row].height = 6
             excel_row += 1
-            # Bandeau titre
+            # Ligne séparatrice colorée (trait bleu) — visible entre le détail et le récap
+            for c in range(1, max_col + 1):
+                cell = ws.cell(row=excel_row, column=c)
+                cell.fill = FILL_RECAP_SEPARATOR
+                cell.border = Border(
+                    top=Side(style="medium"), bottom=Side(style="medium")
+                )
+            ws.row_dimensions[excel_row].height = 4
+            excel_row += 1
+            # Bandeau titre principal — fond marine, texte blanc large et centré
             for c in range(1, max_col + 1):
                 cell = ws.cell(row=excel_row, column=c)
                 cell.fill = FILL_RECAP_HEADER
-                cell.font = FONT_RECAP_HEADER
-                cell.border = THIN_BORDER
-            ws.cell(row=excel_row, column=1, value="RÉCAPITULATIF").alignment = Alignment(
-                horizontal="left", vertical="center", indent=1
+                cell.font = FONT_RECAP_HEADER_LARGE
+                cell.border = MEDIUM_BORDER
+            title_cell = ws.cell(row=excel_row, column=1, value="  📋  RÉCAPITULATIF")
+            title_cell.alignment = Alignment(
+                horizontal="left", vertical="center"
             )
-            ws.row_dimensions[excel_row].height = 20
+            ws.row_dimensions[excel_row].height = 28
             excel_row += 1
         # ────────────────────────────────────────────────────────────────────────
 
@@ -539,30 +607,36 @@ def export_tco(
         elif row_type == "recap_summary":
             # Ligne dans le tableau final récapitulatif
             recap_summary_rows.append(excel_row)
-            # On cherche à lier au total de la section correspondante
-            # On suppose que le code du récap correspond au code de la section
+            # Cascade : 1) recap interne, 2) SUM articles, 3) valeur statique
             target_row = section_total_row.get(code)
+            art_rows = section_articles.get(code, [])
             if target_row:
                 ws.cell(row=excel_row, column=6, value=f"=F{target_row}")
+            elif art_rows:
+                ws.cell(row=excel_row, column=6, value=_rows_to_sum_formula("F", art_rows))
             else:
-                ws.cell(row=excel_row, column=6, value=row.get("Px_Tot_HT"))  # Fallback
+                ws.cell(row=excel_row, column=6, value=row.get("Px_Tot_HT"))
 
-        elif re.search(r"montant\s+ht", desig_lower):
-            # Grand Total HT
-            if recap_summary_rows:
+        elif _RE_MONTANT_HT.search(desig_lower):
+            # Grand Total HT — somme des lignes récapitulatif
+            # Priorité : recap_summary_rows, sinon section_total_row (fallback PDF)
+            _sum_rows = recap_summary_rows or list(section_total_row.values())
+            if _sum_rows:
                 ws.cell(
-                    row=excel_row, column=6, value=_rows_to_sum_formula("F", recap_summary_rows)
+                    row=excel_row, column=6, value=_rows_to_sum_formula("F", _sum_rows)
                 )
             else:
                 ws.cell(row=excel_row, column=6, value=row.get("Px_Tot_HT"))
             ht_row_idx = excel_row
-        elif re.search(r"tva", desig_lower) and not re.search(r"ht", desig_lower):
+        elif _RE_TVA_ONLY.search(desig_lower) and not _RE_HT_ONLY.search(desig_lower):
+            # TVA = HT * taux
             if ht_row_idx is not None:
                 ws.cell(row=excel_row, column=6, value=f"=F{ht_row_idx}*{tva_rate}")
                 tva_row_idx = excel_row
             else:
                 ws.cell(row=excel_row, column=6, value=row.get("Px_Tot_HT"))
-        elif re.search(r"montant\s+ttc", desig_lower):
+        elif _RE_MONTANT_TTC.search(desig_lower):
+            # TTC = HT + TVA
             if ht_row_idx is not None and tva_row_idx is not None:
                 ws.cell(row=excel_row, column=6, value=f"=F{ht_row_idx}+F{tva_row_idx}")
             else:
@@ -608,25 +682,35 @@ def export_tco(
                 else:
                     ws.cell(row=excel_row, column=col_offset + 2, value=0)
             elif row_type == "recap_summary":
+                # Cascade : 1) recap interne, 2) SUM articles, 3) valeur statique
                 target_row = section_total_row.get(code)
+                art_rows = section_articles.get(code, [])
                 if target_row:
                     ws.cell(row=excel_row, column=col_offset + 2, value=f"={tot_col}{target_row}")
-                else:
-                    ws.cell(
-                        row=excel_row, column=col_offset + 2, value=row.get(f"{comp}_Px_Tot_HT")
-                    )
-            elif re.search(r"montant\s+ht", desig_lower):
-                if recap_summary_rows:
+                elif art_rows:
                     ws.cell(
                         row=excel_row,
                         column=col_offset + 2,
-                        value=_rows_to_sum_formula(tot_col, recap_summary_rows),
+                        value=_rows_to_sum_formula(tot_col, art_rows),
                     )
                 else:
                     ws.cell(
                         row=excel_row, column=col_offset + 2, value=row.get(f"{comp}_Px_Tot_HT")
                     )
-            elif re.search(r"tva", desig_lower) and not re.search(r"ht", desig_lower):
+            elif _RE_MONTANT_HT.search(desig_lower):
+                # Même fallback que col F : recap_summary ou section_total_row
+                _sum_rows = recap_summary_rows or list(section_total_row.values())
+                if _sum_rows:
+                    ws.cell(
+                        row=excel_row,
+                        column=col_offset + 2,
+                        value=_rows_to_sum_formula(tot_col, _sum_rows),
+                    )
+                else:
+                    ws.cell(
+                        row=excel_row, column=col_offset + 2, value=row.get(f"{comp}_Px_Tot_HT")
+                    )
+            elif _RE_TVA_ONLY.search(desig_lower) and not _RE_HT_ONLY.search(desig_lower):
                 if ht_row_idx is not None:
                     ws.cell(
                         row=excel_row,
@@ -637,7 +721,7 @@ def export_tco(
                     ws.cell(
                         row=excel_row, column=col_offset + 2, value=row.get(f"{comp}_Px_Tot_HT")
                     )
-            elif re.search(r"montant\s+ttc", desig_lower):
+            elif _RE_MONTANT_TTC.search(desig_lower):
                 if ht_row_idx is not None and tva_row_idx is not None:
                     ws.cell(
                         row=excel_row,
@@ -700,11 +784,11 @@ def export_tco(
 
         # Hiérarchie visuelle : surcharge pour les lignes totaux généraux
         if row_type == "total_line":
-            if re.search(r"montant\s+ht", desig_lower):
+            if _RE_MONTANT_HT.search(desig_lower):
                 font, fill = FONT_GRAND_TOTAL, FILL_MONTANT_HT
-            elif re.search(r"\btva\b", desig_lower) and not re.search(r"\bht\b", desig_lower):
+            elif _RE_TVA_ONLY.search(desig_lower) and not _RE_HT_ONLY.search(desig_lower):
                 font, fill = FONT_GRAND_TOTAL, FILL_TVA
-            elif re.search(r"montant\s+ttc|(?<!\w)ttc(?!\w)", desig_lower):
+            elif _RE_MONTANT_TTC.search(desig_lower):
                 font, fill = FONT_GRAND_TOTAL, FILL_MONTANT_TTC
 
         # Sous-totaux intermédiaires (recap de section imbriquée) : 8pt comme la référence.
@@ -716,10 +800,11 @@ def export_tco(
         # Articles alternatifs : code suffixé par une ou plusieurs lettres après un chiffre
         # (ex: "01.1A", "10.2.2.1.4.1A", "11.2.1.1.2AA") → orange comme les modèles.
         if row_type in ("article", "sub_section", "section_header"):
-            if re.search(r"\d[A-Z]+$", code):
+            if _RE_ALT_ARTICLE.search(code):
                 font = FONT_ALTERNATIVE
 
-        _border = THIN_BORDER
+        # Récapitulatif : bordure épaisse pour encadrer chaque ligne et la différencier clairement
+        _border = MEDIUM_BORDER if row_type in ("recap_summary", "recap") else THIN_BORDER
 
         for c in range(1, max_col + 1):
             cell = ws.cell(row=excel_row, column=c)
@@ -732,6 +817,17 @@ def export_tco(
             # Alignement vertical uniforme sur toute la ligne → élimine le décalage
             # Code (bas par défaut) vs Désignation (top explicite).
             cell.alignment = Alignment(vertical="center")
+
+        # recap_summary : teinter les colonnes de chaque entreprise avec leur couleur.
+        # Les colonnes A–F gardent FILL_RECAP_SUMMARY ; chaque groupe de 4 colonnes
+        # entreprise reçoit la teinte claire correspondant à la couleur de son en-tête.
+        if row_type == "recap_summary":
+            _tint_off = 7
+            for _tint_idx in range(len(companies)):
+                _tint = FILL_COMPANY_TINTS[_tint_idx % len(FILL_COMPANY_TINTS)]
+                for _tc in range(_tint_off, _tint_off + 4):
+                    ws.cell(row=excel_row, column=_tc).fill = _tint
+                _tint_off += 4
 
         # Col A (Code) : left + center — même ancrage vertical que col B.
         ws.cell(row=excel_row, column=1).alignment = Alignment(horizontal="left", vertical="center")
@@ -801,8 +897,13 @@ def export_tco(
         # Hauteur de ligne dynamique : s'adapte aux désignations longues qui wrappent.
         # Col B = 56.75 chars → ~55 chars utiles par ligne à 9pt.
         # Chaque ligne de texte ≈ 16 pt ; plancher 28.5 pt (1 ligne), plafond 80 pt.
-        _n_lines = max(1, -(-len(desig) // 55)) if desig else 1
-        ws.row_dimensions[excel_row].height = max(28.5, min(_n_lines * 16.0, 80.0))
+        # Les lignes recap_summary ont une hauteur fixe légèrement plus grande pour
+        # les différencier visuellement du reste du tableau.
+        if row_type in ("recap_summary", "recap"):
+            ws.row_dimensions[excel_row].height = 22.0
+        else:
+            _n_lines = max(1, -(-len(desig) // 55)) if desig else 1
+            ws.row_dimensions[excel_row].height = max(28.5, min(_n_lines * 16.0, 80.0))
 
         excel_row += 1
 
@@ -846,13 +947,13 @@ def export_tco(
     ws.row_dimensions[header_row_1].height = 14.25
     ws.row_dimensions[header_row_2].height = 14.25
 
-    # Freeze panes robuste + corrections anti-chevauchement
+    # Freeze panes : uniquement les lignes d'en-tête (0 colonne figée)
     fix_freeze_panes(
-        ws, header_rows=header_row_2, frozen_cols=2
-    )  # C{header_row_2 + 1} : lignes 1-header_row_2 + cols A-B
+        ws, header_rows=header_row_2, frozen_cols=0
+    )  # A{header_row_2 + 1} : lignes 1-header_row_2 figées, colonnes libres
     fix_merged_cells_crossing_freeze(
-        ws, header_rows=header_row_2, frozen_cols=2
-    )  # retire fusions qui traversent
+        ws, header_rows=header_row_2, frozen_cols=0
+    )  # retire fusions qui traversent la frontière de freeze
     prevent_text_overflow(
         ws, min_row=header_row_2 + 1, max_col=max_col
     )  # fill blanc sur cellules vides
