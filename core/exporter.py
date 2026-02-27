@@ -134,6 +134,7 @@ def _get_lot_tab_color(lot_num: str) -> str:
     except (ValueError, TypeError):
         return "2F5496"  # bleu par défaut
 
+
 THIN_BORDER = Border(
     left=Side(style="thin"),
     right=Side(style="thin"),
@@ -349,7 +350,7 @@ def export_tco(
         current_row += 1
         ws.cell(row=current_row, column=1, value="Devise :").font = Font(bold=True)
         ws.cell(row=current_row, column=2, value=devise)
-        current_row += 2 # Add a blank line
+        current_row += 2  # Add a blank line
 
     header_row_1 = current_row
     header_row_2 = current_row + 1
@@ -378,7 +379,9 @@ def export_tco(
         start_col = company_start_col
         end_col = start_col + 3
         ws.cell(row=header_row_1, column=start_col, value=comp)
-        ws.merge_cells(start_row=header_row_1, start_column=start_col, end_row=header_row_1, end_column=end_col)
+        ws.merge_cells(
+            start_row=header_row_1, start_column=start_col, end_row=header_row_1, end_column=end_col
+        )
         fill = FILL_COMPANY_COLORS[comp_idx % len(FILL_COMPANY_COLORS)]
         for c in range(start_col, end_col + 1):
             cell = ws.cell(row=header_row_1, column=c)
@@ -844,9 +847,15 @@ def export_tco(
     ws.row_dimensions[header_row_2].height = 14.25
 
     # Freeze panes robuste + corrections anti-chevauchement
-    fix_freeze_panes(ws, header_rows=header_row_2, frozen_cols=2)  # C{header_row_2 + 1} : lignes 1-header_row_2 + cols A-B
-    fix_merged_cells_crossing_freeze(ws, header_rows=header_row_2, frozen_cols=2)  # retire fusions qui traversent
-    prevent_text_overflow(ws, min_row=header_row_2 + 1, max_col=max_col)  # fill blanc sur cellules vides
+    fix_freeze_panes(
+        ws, header_rows=header_row_2, frozen_cols=2
+    )  # C{header_row_2 + 1} : lignes 1-header_row_2 + cols A-B
+    fix_merged_cells_crossing_freeze(
+        ws, header_rows=header_row_2, frozen_cols=2
+    )  # retire fusions qui traversent
+    prevent_text_overflow(
+        ws, min_row=header_row_2 + 1, max_col=max_col
+    )  # fill blanc sur cellules vides
 
     log.info("Workbook prêt. Output_path=%s", output_path)
 

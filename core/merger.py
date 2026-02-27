@@ -125,7 +125,7 @@ def _build_new_row(
         "row_type": "article",
         "original_row": original_row_idx,
         "parent_code": parent_code,
-        "is_extra_line": True, # Tag to identify lines not in original model
+        "is_extra_line": True,  # Tag to identify lines not in original model
     }
     for col in merged_df.columns:
         if any(suffix in col for suffix in ["_Qu.", "_Px_U_HT", "_Px_Tot_HT", "_Commentaire"]):
@@ -270,23 +270,27 @@ def merge_company_into_tco(
                     tco_qu_val = float(tco_qu) if tco_qu is not None else 0.0
                     dpgf_qu_val = float(dpgf_qu) if dpgf_qu is not None else 0.0
                     if tco_qu_val != dpgf_qu_val and tco_qu_val > 0:
-                        alerts.append({
-                            "type": "warning",
-                            "color": "orange",
-                            "code": code,
-                            "message": f"Quantité divergente par rapport au modèle ({tco_qu} vs {dpgf_qu})",
-                        })
+                        alerts.append(
+                            {
+                                "type": "warning",
+                                "color": "orange",
+                                "code": code,
+                                "message": f"Quantité divergente par rapport au modèle ({tco_qu} vs {dpgf_qu})",
+                            }
+                        )
                 except (ValueError, TypeError):
                     pass
 
                 # Check Unit mismatch
                 if tco_u and dpgf_u and tco_u != dpgf_u:
-                    alerts.append({
-                        "type": "warning",
-                        "color": "orange",
-                        "code": code,
-                        "message": f"Unité modifiée par rapport au modèle ({tco_u} vs {dpgf_u})",
-                    })
+                    alerts.append(
+                        {
+                            "type": "warning",
+                            "color": "orange",
+                            "code": code,
+                            "message": f"Unité modifiée par rapport au modèle ({tco_u} vs {dpgf_u})",
+                        }
+                    )
 
             matched_count += 1
         else:
@@ -392,7 +396,13 @@ def merge_company_into_tco(
                 f"Vérifiez que le bon template TCO est chargé pour ce lot, "
                 f"ou que les codes du DPGF entreprise suivent la même numérotation."
             )
-            log.error("Match rate critique %s : %.1f%% (%d/%d)", company_name, match_rate, matched_count, total_dpgf)
+            log.error(
+                "Match rate critique %s : %.1f%% (%d/%d)",
+                company_name,
+                match_rate,
+                matched_count,
+                total_dpgf,
+            )
             alerts.insert(
                 0,
                 {

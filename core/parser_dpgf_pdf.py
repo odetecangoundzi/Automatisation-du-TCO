@@ -29,12 +29,12 @@ PDF_MAGIC = b"%PDF"
 # ---------------------------------------------------------------------------
 
 _CODE_EXACT = frozenset({"code", "n°", "n°.", "num", "indice", "ref", "no", "n° de prix"})
-_DESIG_SUB  = ("signation", "libellé", "libelle")   # sous-chaînes suffisantes
-_TOT_SUB    = ("px tot", "total ht", "prix tot", "montant ht", "px tot.", "prix tot.")
-_PU_SUB     = ("px u", "p.u", "prix u", "unitaire", "prix unit")
-_QU_SUB     = ("quantit", "qté", "qte")
-_QU_EXACT   = frozenset({"qu.", "q.", "qt.", "qt", "qu"})
-_U_EXACT    = frozenset({"u", "u.", "unité", "unite"})
+_DESIG_SUB = ("signation", "libellé", "libelle")  # sous-chaînes suffisantes
+_TOT_SUB = ("px tot", "total ht", "prix tot", "montant ht", "px tot.", "prix tot.")
+_PU_SUB = ("px u", "p.u", "prix u", "unitaire", "prix unit")
+_QU_SUB = ("quantit", "qté", "qte")
+_QU_EXACT = frozenset({"qu.", "q.", "qt.", "qt", "qu"})
+_U_EXACT = frozenset({"u", "u.", "unité", "unite"})
 
 
 # ---------------------------------------------------------------------------
@@ -49,12 +49,9 @@ def _find_header_idx(rows: list[list]) -> int | None:
             continue
         cells = [str(c or "").strip().lower() for c in row]
 
-        has_code  = any(c in _CODE_EXACT or c.startswith("n°") for c in cells[:6])
+        has_code = any(c in _CODE_EXACT or c.startswith("n°") for c in cells[:6])
         has_desig = any(any(s in c for s in _DESIG_SUB) for c in cells[:8])
-        has_price = any(
-            any(s in c for s in (*_PU_SUB, *_TOT_SUB))
-            for c in cells
-        )
+        has_price = any(any(s in c for s in (*_PU_SUB, *_TOT_SUB)) for c in cells)
         if (has_code or has_desig) and has_price:
             return i
     return None
@@ -78,11 +75,11 @@ def _map_cols(header_row: list) -> dict[str, int]:
                 taken.add(i)
                 break
 
-    _try("tot",  lambda c: any(s in c for s in _TOT_SUB))
-    _try("pu",   lambda c: any(s in c for s in _PU_SUB) or c.strip(". ") == "pu")
-    _try("qu",   lambda c: any(s in c for s in _QU_SUB) or c.strip(". ") in _QU_EXACT)
-    _try("u",    lambda c: c.strip(". ") in _U_EXACT)
-    _try("desig",lambda c: any(s in c for s in _DESIG_SUB))
+    _try("tot", lambda c: any(s in c for s in _TOT_SUB))
+    _try("pu", lambda c: any(s in c for s in _PU_SUB) or c.strip(". ") == "pu")
+    _try("qu", lambda c: any(s in c for s in _QU_SUB) or c.strip(". ") in _QU_EXACT)
+    _try("u", lambda c: c.strip(". ") in _U_EXACT)
+    _try("desig", lambda c: any(s in c for s in _DESIG_SUB))
     _try("code", lambda c: c.strip(". ") in _CODE_EXACT or c.startswith("n°"))
 
     return result
@@ -110,7 +107,7 @@ def _extract_pdfplumber(filepath: str) -> list[list] | None:
     def _extract_with(strategy: str) -> list[list]:
         rows: list[list] = []
         settings = {
-            "vertical_strategy":   strategy,
+            "vertical_strategy": strategy,
             "horizontal_strategy": strategy,
         }
         with pdfplumber.open(filepath) as pdf:
@@ -203,7 +200,7 @@ def _extract_pymupdf(filepath: str) -> list[list] | None:
         # Bornes de colonnes : mi-chemin entre deux x consécutifs
         bounds: list[tuple[float, float]] = []
         for i in range(n_cols):
-            left  = (col_x[i - 1] + col_x[i]) / 2 if i > 0 else 0.0
+            left = (col_x[i - 1] + col_x[i]) / 2 if i > 0 else 0.0
             right = (col_x[i] + col_x[i + 1]) / 2 if i < n_cols - 1 else float("inf")
             bounds.append((left, right))
 
@@ -253,28 +250,38 @@ def _normalize_rows(rows: list[list], alerts: list[dict]) -> pd.DataFrame:
     """Convertit les lignes brutes extraites en DataFrame normalisé."""
     header_idx = _find_header_idx(rows)
     if header_idx is None:
-        alerts.append({
-            "type": "error", "color": "red", "row": 0, "code": "",
-            "message": (
-                "En-tête non trouvé dans le PDF "
-                "(colonnes Code / Désignation / Prix introuvables). "
-                "Vérifiez que le document est bien un DPGF."
-            ),
-        })
+        alerts.append(
+            {
+                "type": "error",
+                "color": "red",
+                "row": 0,
+                "code": "",
+                "message": (
+                    "En-tête non trouvé dans le PDF "
+                    "(colonnes Code / Désignation / Prix introuvables). "
+                    "Vérifiez que le document est bien un DPGF."
+                ),
+            }
+        )
         return pd.DataFrame()
 
     col_map = _map_cols(rows[header_idx])
     if "desig" not in col_map and "code" not in col_map:
-        alerts.append({
-            "type": "error", "color": "red", "row": 0, "code": "",
-            "message": "Colonnes Code / Désignation non identifiées dans le PDF.",
-        })
+        alerts.append(
+            {
+                "type": "error",
+                "color": "red",
+                "row": 0,
+                "code": "",
+                "message": "Colonnes Code / Désignation non identifiées dans le PDF.",
+            }
+        )
         return pd.DataFrame()
 
     result_rows: list[dict] = []
     current_section_code = ""
 
-    for offset, row in enumerate(rows[header_idx + 1:]):
+    for offset, row in enumerate(rows[header_idx + 1 :]):
         if not row:
             continue
 
@@ -285,78 +292,89 @@ def _normalize_rows(rows: list[list], alerts: list[dict]) -> pd.DataFrame:
             v = row[idx]
             return v if v is not None else None
 
-        code_raw  = _get("code")
+        code_raw = _get("code")
         desig_raw = _get("desig")
-        qu_raw    = _get("qu")
-        u_raw     = _get("u")
-        pu_raw    = _get("pu")
-        tot_raw   = _get("tot")
+        qu_raw = _get("qu")
+        u_raw = _get("u")
+        pu_raw = _get("pu")
+        tot_raw = _get("tot")
 
-        code_str  = str(code_raw  or "").strip()
+        code_str = str(code_raw or "").strip()
         desig_str = str(desig_raw or "").strip()
 
         if not code_str and not desig_str:
             continue
 
         has_price = _looks_numeric(qu_raw) and _looks_numeric(pu_raw)
-        row_type  = classify_row(code_str, desig_str, "", has_price=has_price)
+        row_type = classify_row(code_str, desig_str, "", has_price=has_price)
 
         if row_type == "section_header":
             current_section_code = code_str
         parent_code = current_section_code if row_type == "recap" else ""
 
         if row_type in ("article", "sub_section"):
-            qu_val,  qu_cmt  = _clean_numeric(qu_raw)
-            pu_val,  pu_cmt  = _clean_numeric(pu_raw)
+            qu_val, qu_cmt = _clean_numeric(qu_raw)
+            pu_val, pu_cmt = _clean_numeric(pu_raw)
             tot_val, tot_cmt = _clean_numeric(tot_raw)
         else:
-            qu_val  = _safe_decimal(qu_raw)
-            pu_val  = _safe_decimal(pu_raw)
+            qu_val = _safe_decimal(qu_raw)
+            pu_val = _safe_decimal(pu_raw)
             tot_val = _safe_decimal(tot_raw)
             qu_cmt = pu_cmt = tot_cmt = ""
 
-        comments    = [c for c in [qu_cmt, pu_cmt, tot_cmt] if c]
+        comments = [c for c in [qu_cmt, pu_cmt, tot_cmt] if c]
         commentaire = "; ".join(comments) if comments else ""
-        u_str       = str(u_raw or "").strip()
+        u_str = str(u_raw or "").strip()
 
         # Alerte mots-clés dans champs numériques (même logique que parser_dpgf)
         if row_type == "article" and code_str and (qu_cmt or pu_cmt or tot_cmt):
-            kw_found   = any(
+            kw_found = any(
                 c.lower() in KEYWORDS or c.lower() in KEYWORDS.values()
                 for c in [qu_cmt, pu_cmt, tot_cmt]
                 if c
             )
-            atype  = ("info", "blue") if kw_found else ("warning", "yellow")
-            msg    = (
+            atype = ("info", "blue") if kw_found else ("warning", "yellow")
+            msg = (
                 f"Mot-clé détecté : {commentaire}"
                 if kw_found
                 else f"Texte dans champ numérique : {commentaire}"
             )
-            alerts.append({
-                "type": atype[0], "color": atype[1],
-                "row": header_idx + 1 + offset + 1,
-                "code": code_str, "message": msg,
-            })
+            alerts.append(
+                {
+                    "type": atype[0],
+                    "color": atype[1],
+                    "row": header_idx + 1 + offset + 1,
+                    "code": code_str,
+                    "message": msg,
+                }
+            )
 
-        result_rows.append({
-            "Code":        code_str,
-            "Désignation": desig_str,
-            "Qu.":         qu_val,
-            "U":           u_str,
-            "Px_U_HT":     pu_val,
-            "Px_Tot_HT":   tot_val,
-            "Commentaire": commentaire,
-            "Entete":      "",   # Colonne absente dans les PDF
-            "row_type":    row_type,
-            "original_row": header_idx + 1 + offset + 1,
-            "parent_code": parent_code,
-        })
+        result_rows.append(
+            {
+                "Code": code_str,
+                "Désignation": desig_str,
+                "Qu.": qu_val,
+                "U": u_str,
+                "Px_U_HT": pu_val,
+                "Px_Tot_HT": tot_val,
+                "Commentaire": commentaire,
+                "Entete": "",  # Colonne absente dans les PDF
+                "row_type": row_type,
+                "original_row": header_idx + 1 + offset + 1,
+                "parent_code": parent_code,
+            }
+        )
 
     if not result_rows:
-        alerts.append({
-            "type": "warning", "color": "orange", "row": 0, "code": "",
-            "message": "Aucune ligne de données extraite du PDF.",
-        })
+        alerts.append(
+            {
+                "type": "warning",
+                "color": "orange",
+                "row": 0,
+                "code": "",
+                "message": "Aucune ligne de données extraite du PDF.",
+            }
+        )
 
     return pd.DataFrame(result_rows) if result_rows else pd.DataFrame()
 
@@ -382,35 +400,45 @@ def parse_dpgf_pdf(filepath: str) -> tuple[pd.DataFrame, list[dict]]:
     alerts: list[dict] = []
 
     # Niveau 1 : pdfplumber
-    rows  = _extract_pdfplumber(filepath)
+    rows = _extract_pdfplumber(filepath)
     source = "pdfplumber"
 
     # Niveau 2 : PyMuPDF si pdfplumber n'a pas trouvé d'en-tête valide
     if not rows or _find_header_idx(rows) is None:
         log.info("pdfplumber insuffisant — fallback PyMuPDF")
-        rows  = _extract_pymupdf(filepath)
+        rows = _extract_pymupdf(filepath)
         source = "PyMuPDF"
 
     if not rows:
-        return pd.DataFrame(), [{
-            "type": "error", "color": "red", "row": 0, "code": "",
-            "message": (
-                "Impossible d'extraire les données du PDF. "
-                "Vérifiez que le fichier est un PDF textuel (non scanné) "
-                "et qu'il contient bien un tableau DPGF."
-            ),
-        }]
+        return pd.DataFrame(), [
+            {
+                "type": "error",
+                "color": "red",
+                "row": 0,
+                "code": "",
+                "message": (
+                    "Impossible d'extraire les données du PDF. "
+                    "Vérifiez que le fichier est un PDF textuel (non scanné) "
+                    "et qu'il contient bien un tableau DPGF."
+                ),
+            }
+        ]
 
     log.info("Source %s : %d lignes brutes extraites", source, len(rows))
 
     if source == "PyMuPDF":
-        alerts.append({
-            "type": "info", "color": "blue", "row": 0, "code": "",
-            "message": (
-                "PDF sans tableau structuré — extraction par coordonnées X/Y (PyMuPDF). "
-                "Vérifiez que les données extraites sont correctes."
-            ),
-        })
+        alerts.append(
+            {
+                "type": "info",
+                "color": "blue",
+                "row": 0,
+                "code": "",
+                "message": (
+                    "PDF sans tableau structuré — extraction par coordonnées X/Y (PyMuPDF). "
+                    "Vérifiez que les données extraites sont correctes."
+                ),
+            }
+        )
 
     df = _normalize_rows(rows, alerts)
     log.info("DPGF PDF parsé : %d lignes, %d alertes", len(df), len(alerts))

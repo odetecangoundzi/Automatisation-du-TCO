@@ -58,9 +58,7 @@ def open_excel_file(
     # Fallback xlrd si openpyxl échoue (ex : fichier .xls renommé en .xlsx,
     # ou fichier généré par un logiciel non conforme OOXML).
     try:
-        xl_file = pd.ExcelFile(
-            filepath, engine=engine, engine_kwargs=engine_kwargs
-        )
+        xl_file = pd.ExcelFile(filepath, engine=engine, engine_kwargs=engine_kwargs)
     except Exception as _first_err:
         if engine == "openpyxl":
             try:

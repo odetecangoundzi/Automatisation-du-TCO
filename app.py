@@ -80,15 +80,15 @@ st.set_page_config(
 # ---------------------------------------------------------------------------
 
 defaults = {
-    "active_project": None,   # dict {project_id, project_name, created_at, lots:[...]}
-    "active_lot_id": None,    # str — lot_id du lot courant dans active_project
+    "active_project": None,  # dict {project_id, project_name, created_at, lots:[...]}
+    "active_lot_id": None,  # str — lot_id du lot courant dans active_project
     "step": 0,
     "upload_counter": 0,
-    "confirm_remove": None,   # UX-4 : stocke le nom de l'entreprise à supprimer
+    "confirm_remove": None,  # UX-4 : stocke le nom de l'entreprise à supprimer
     "confirm_shutdown": False,  # ADMIN : confirmation deux étapes avant arrêt serveur
     "dark_mode": False,
     "export_done": False,
-    "_flash_msg": None,       # P12 : message court affiché après rerun
+    "_flash_msg": None,  # P12 : message court affiché après rerun
 }
 for k, v in defaults.items():
     if k not in st.session_state:
@@ -100,7 +100,7 @@ os.makedirs(PROJECTS_DIR, exist_ok=True)
 # APP-1 : & et ' retirés — ils peuvent servir à s'échapper de contextes HTML/SQL
 COMPANY_PATTERN = re.compile(r"^[A-Za-zÀ-ÖØ-öø-ÿ0-9 \-_.()]+$")
 # Extensions sans le point, pour le paramètre type= des widgets file_uploader Streamlit
-_UPLOADER_TYPES      = [ext.lstrip(".") for ext in ALLOWED_EXTENSIONS]
+_UPLOADER_TYPES = [ext.lstrip(".") for ext in ALLOWED_EXTENSIONS]
 # DPGF entreprise : Excel + PDF
 _DPGF_UPLOADER_TYPES = [ext.lstrip(".") for ext in DPGF_ALLOWED_EXTENSIONS]
 
@@ -361,7 +361,9 @@ is_dark = st.session_state.dark_mode
 st.markdown(
     get_full_css(
         is_dark,
-        hide_sidebar=(st.session_state.step == 0 and st.session_state.get("active_project") is None),
+        hide_sidebar=(
+            st.session_state.step == 0 and st.session_state.get("active_project") is None
+        ),
     ),
     unsafe_allow_html=True,
 )
@@ -370,6 +372,7 @@ st.markdown(
 # ---------------------------------------------------------------------------
 # STEP 0 — Landing Page
 # ---------------------------------------------------------------------------
+
 
 def _render_project_lots_view(proj: dict) -> None:
     """Affiche la vue gestion des lots du projet actif."""
@@ -411,7 +414,12 @@ def _render_project_lots_view(proj: dict) -> None:
 
     col_lot_name, col_lot_btn = st.columns([3, 1])
     with col_lot_name:
-        new_lot_label = st.text_input("Nom du lot", placeholder="Ex: GROS OEUVRE", key="new_lot_name_input", label_visibility="collapsed")
+        new_lot_label = st.text_input(
+            "Nom du lot",
+            placeholder="Ex: GROS OEUVRE",
+            key="new_lot_name_input",
+            label_visibility="collapsed",
+        )
     with col_lot_btn:
         add_lot_clicked = st.button("➕ Ajouter un lot", type="primary", width="stretch")
 
@@ -467,7 +475,6 @@ if st.session_state.step == 0:
                     key="landing_new_proj_name",
                 )
 
-
                 st.markdown("<div style='height: 10px;'></div>", unsafe_allow_html=True)
                 if st.button("🚀 Creer le projet", type="primary", width="stretch"):
                     if new_proj_name:
@@ -519,7 +526,9 @@ if st.session_state.step == 0:
 # ---------------------------------------------------------------------------
 
 if st.session_state.step > 0:
-    _proj_name_hdr = (st.session_state.get("active_project") or {}).get("project_name", "Sans titre")
+    _proj_name_hdr = (st.session_state.get("active_project") or {}).get(
+        "project_name", "Sans titre"
+    )
     _lot_label_hdr = _active_lot_get("lot_label", "")
     _subtitle_hdr = f"{_proj_name_hdr} — {_lot_label_hdr}" if _lot_label_hdr else _proj_name_hdr
     st.markdown(
@@ -715,20 +724,20 @@ if st.session_state.step >= 2:
                                     dpgf_df, parse_alerts = parse_dpgf(path)
                                 if dpgf_df.empty:
                                     err_msgs = [
-                                        a["message"]
-                                        for a in parse_alerts
-                                        if a["type"] == "error"
+                                        a["message"] for a in parse_alerts if a["type"] == "error"
                                     ]
-                                    msg = err_msgs[0] if err_msgs else "Fichier invalide ou non reconnu"
+                                    msg = (
+                                        err_msgs[0]
+                                        if err_msgs
+                                        else "Fichier invalide ou non reconnu"
+                                    )
                                     st.error(f"❌ {company_name} : {msg}")
                                 else:
                                     companies_lot[company_name] = {
                                         "dpgf_df": dpgf_df,
                                         "parse_alerts": parse_alerts,
                                         "filename": dpgf_file.name,
-                                        "n_articles": int(
-                                            (dpgf_df["row_type"] == "article").sum()
-                                        ),
+                                        "n_articles": int((dpgf_df["row_type"] == "article").sum()),
                                     }
                                     added_companies.append(company_name)
                                     success_count += 1
@@ -753,16 +762,18 @@ if st.session_state.step >= 2:
         # Reinitialise uniquement le lot actif — les autres lots du projet sont preserves
         lot_cur = _get_active_lot()
         if lot_cur is not None:
-            lot_cur.update({
-                "tco_df": None,
-                "tco_meta": None,
-                "lot_label": "Nouveau lot",
-                "lot_num": "",
-                "merged_df": None,
-                "all_alerts": [],
-                "companies": {},
-                "tva_rate": TVA_DEFAULT,
-            })
+            lot_cur.update(
+                {
+                    "tco_df": None,
+                    "tco_meta": None,
+                    "lot_label": "Nouveau lot",
+                    "lot_num": "",
+                    "merged_df": None,
+                    "all_alerts": [],
+                    "companies": {},
+                    "tva_rate": TVA_DEFAULT,
+                }
+            )
         st.session_state.step = 1
         st.session_state.upload_counter = 0
         st.session_state.confirm_remove = None

@@ -14,9 +14,9 @@ for ns in wb.named_styles:
 
 for sheet_name in wb.sheetnames:
     ws = wb[sheet_name]
-    print(f"\n{'='*80}")
+    print(f"\n{'=' * 80}")
     print(f"=== FEUILLE: {sheet_name} ===")
-    print(f"{'='*80}")
+    print(f"{'=' * 80}")
     print(f"Dimensions: {ws.dimensions}")
     print(
         f"Min row: {ws.min_row}, Max row: {ws.max_row}, "
@@ -59,9 +59,7 @@ for sheet_name in wb.sheetnames:
                 if font.color.type == "rgb":
                     font_color = font.color.rgb
                 elif font.color.type == "theme":
-                    font_color = (
-                        f"theme:{font.color.theme},tint:{font.color.tint}"
-                    )
+                    font_color = f"theme:{font.color.theme},tint:{font.color.tint}"
                 else:
                     font_color = font.color.type
             except Exception as exc:
@@ -79,9 +77,7 @@ for sheet_name in wb.sheetnames:
                             bc = f"theme:{side.color.theme}"
                     except Exception:
                         bc = "?"
-                    border_parts.append(
-                        f"{side_name}:{side.border_style}({bc})"
-                    )
+                    border_parts.append(f"{side_name}:{side.border_style}({bc})")
             border_str = "|".join(border_parts) if border_parts else "none"
 
             merge_type = ""
@@ -91,10 +87,7 @@ for sheet_name in wb.sheetnames:
                     and mc_range.min_col <= cell.column <= mc_range.max_col
                 )
                 if in_range:
-                    if (
-                        cell.row == mc_range.min_row
-                        and cell.column == mc_range.min_col
-                    ):
+                    if cell.row == mc_range.min_row and cell.column == mc_range.min_col:
                         merge_type = f"MERGE_MASTER({mc_range})"
                     else:
                         merge_type = f"MERGE_SLAVE({mc_range})"

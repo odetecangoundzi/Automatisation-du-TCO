@@ -68,7 +68,7 @@ def _lot_stub_from_v2(data: dict) -> dict:
         "lot_id": uuid.uuid4().hex,
         "lot_label": lot_label,
         "lot_num": m.group(1) if m else "00",
-        "tco_df": data.get("tco_df"),        # list[dict] ou None
+        "tco_df": data.get("tco_df"),  # list[dict] ou None
         "tco_meta": meta,
         "tva_rate": data.get("tva_rate", TVA_DEFAULT),
         "merged_df": data.get("merged_df"),  # list[dict] ou None

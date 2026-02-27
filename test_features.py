@@ -8,18 +8,58 @@ def test_tco_features():
     # Fake TCO Model
     tco_data = [
         {"Code": "01", "Désignation": "Chapitre 1", "row_type": "section_header"},
-        {"Code": "01.1", "Désignation": "Article 1", "Qu.": 100, "U": "m2", "Px_U_HT": 10, "Px_Tot_HT": 1000, "row_type": "article"},
+        {
+            "Code": "01.1",
+            "Désignation": "Article 1",
+            "Qu.": 100,
+            "U": "m2",
+            "Px_U_HT": 10,
+            "Px_Tot_HT": 1000,
+            "row_type": "article",
+        },
         {"Code": "02", "Désignation": "Chapitre 2", "row_type": "section_header"},
-        {"Code": "02.1", "Désignation": "Article 2", "Qu.": 50, "U": "m3", "Px_U_HT": 20, "Px_Tot_HT": 1000, "row_type": "article"},
-        {"Code": "", "Désignation": "MONTANT HT", "Px_Tot_HT": 2000, "row_type": "total_line"}
+        {
+            "Code": "02.1",
+            "Désignation": "Article 2",
+            "Qu.": 50,
+            "U": "m3",
+            "Px_U_HT": 20,
+            "Px_Tot_HT": 1000,
+            "row_type": "article",
+        },
+        {"Code": "", "Désignation": "MONTANT HT", "Px_Tot_HT": 2000, "row_type": "total_line"},
     ]
     tco_df = pd.DataFrame(tco_data)
 
     # Fake DPGF Offer with mismatches and extra line
     dpgf_data = [
-        {"Code": "01.1", "Désignation": "Article 1", "Qu.": 1, "U": "Ens", "Px_U_HT": 1200, "Px_Tot_HT": 1200, "row_type": "article"}, # Mismatch Qty/Unit
-        {"Code": "02.1", "Désignation": "Article 2", "Qu.": 50, "U": "m3", "Px_U_HT": 25, "Px_Tot_HT": 1250, "row_type": "article"}, # Normal
-        {"Code": "02.2", "Désignation": "Ligne supplementaire", "Qu.": 2, "U": "u", "Px_U_HT": 100, "Px_Tot_HT": 200, "row_type": "article"} # Extra Line
+        {
+            "Code": "01.1",
+            "Désignation": "Article 1",
+            "Qu.": 1,
+            "U": "Ens",
+            "Px_U_HT": 1200,
+            "Px_Tot_HT": 1200,
+            "row_type": "article",
+        },  # Mismatch Qty/Unit
+        {
+            "Code": "02.1",
+            "Désignation": "Article 2",
+            "Qu.": 50,
+            "U": "m3",
+            "Px_U_HT": 25,
+            "Px_Tot_HT": 1250,
+            "row_type": "article",
+        },  # Normal
+        {
+            "Code": "02.2",
+            "Désignation": "Ligne supplementaire",
+            "Qu.": 2,
+            "U": "u",
+            "Px_U_HT": 100,
+            "Px_Tot_HT": 200,
+            "row_type": "article",
+        },  # Extra Line
     ]
     dpgf_df = pd.DataFrame(dpgf_data)
 
@@ -43,7 +83,7 @@ def test_tco_features():
             "moa": "Ville de Test",
             "moe": "ArchiTech",
             "devise": "€",
-            "lot": "01 Gros Oeuvre"
+            "lot": "01 Gros Oeuvre",
         }
     }
 
