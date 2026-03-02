@@ -235,19 +235,20 @@ html, body, [class*="css"] {{ font-family: 'Inter', sans-serif; }}
     transition: border-color .2s, box-shadow .2s, background .2s, transform .2s;
 }}
 [data-testid="stFileUploader"]:hover {{ border-color: var(--accent); }}
-/* Drag-over : bordure solide + teinte + légère mise en valeur */
-[data-testid="stFileUploader"].drag-active {{
+/* Drag-over : utilisation du focus-within natif ou hover state */
+[data-testid="stFileUploader"]:focus-within,
+[data-testid="stFileUploader"]:has([data-testid="stFileUploadDropzone"]:hover) {
     border-color: var(--accent) !important;
     border-style: solid !important;
     background: rgba(68, 114, 196, 0.07) !important;
     box-shadow: 0 0 0 4px rgba(68, 114, 196, 0.2) !important;
     transform: scale(1.012);
-}}
-[data-testid="stFileUploader"].drag-active section > div::after {{
+}
+[data-testid="stFileUploader"]:has([data-testid="stFileUploadDropzone"]:hover) section > div::after {
     content: "⬇️ Relâchez pour importer";
     color: var(--accent);
     font-weight: 600;
-}}
+}
 [data-testid="stFileUploader"] section {{
     padding: 0 !important;
 }}
@@ -341,34 +342,5 @@ footer {{ visibility: hidden; }}
 </style>
 """
 
-    js = """<script>
-(function () {
-    function attachDrag() {
-        document.querySelectorAll('[data-testid="stFileUploader"]').forEach(function (el) {
-            if (el._dragBound) return;
-            el._dragBound = true;
-            el.addEventListener('dragenter', function (e) {
-                e.preventDefault();
-                el.classList.add('drag-active');
-            });
-            el.addEventListener('dragover', function (e) {
-                e.preventDefault();
-                el.classList.add('drag-active');
-            });
-            el.addEventListener('dragleave', function (e) {
-                if (!el.contains(e.relatedTarget)) {
-                    el.classList.remove('drag-active');
-                }
-            });
-            el.addEventListener('drop', function () {
-                el.classList.remove('drag-active');
-            });
-        });
-    }
-    attachDrag();
-    new MutationObserver(attachDrag).observe(document.body, { childList: true, subtree: true });
-}());
-</script>
-"""
-
+    js = ""
     return css + js
