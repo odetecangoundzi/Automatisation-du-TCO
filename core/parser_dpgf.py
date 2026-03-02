@@ -35,6 +35,10 @@ KEYWORDS = {
     "pm": "pm",
 }
 
+# Regex pré-compilées pour _clean_numeric() — appelée pour chaque cellule numérique
+_RE_NUMBER = re.compile(r"-?\d+(?:\.\d+)?")
+_RE_LEADING_PUNCT = re.compile(r"^[.\-:]+")
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -91,7 +95,7 @@ def _clean_numeric(value: int | float | str | None) -> tuple[Decimal, str]:
     cleaned = text.replace(" ", "").replace("\u00a0", "").replace(",", ".")
 
     # On cherche tous les nombres
-    matches = re.findall(r"-?\d+(?:\.\d+)?", cleaned)
+    matches = _RE_NUMBER.findall(cleaned)
     if matches:
         try:
             # P2 FIX: On prend le DERNIER nombre (souvent le prix ou la quantité finale)
@@ -105,7 +109,7 @@ def _clean_numeric(value: int | float | str | None) -> tuple[Decimal, str]:
             remaining = (cleaned[:last_pos] + cleaned[last_pos + len(number_str) :]).strip()
             remaining = remaining.strip("()[]{}/ ")
             # On nettoie un peu le résidu s'il reste des points ou tirets
-            remaining = re.sub(r"^[.\-:]+", "", remaining).strip()
+            remaining = _RE_LEADING_PUNCT.sub("", remaining).strip()
 
             return number, remaining
         except (ValueError, ArithmeticError):  # noqa: S110
@@ -147,6 +151,7 @@ def _check_total_coherence(
                             f"{expected} ≠ {actual} "
                             f"(écart {abs_diff} €)"
                         ),
+                        "short_error": f"erreur de calcul (Écart de {abs_diff} €)",
                     }
         except (ValueError, TypeError):  # noqa: S110
             pass
@@ -304,6 +309,11 @@ def parse_dpgf(filepath: str) -> tuple[pd.DataFrame, list[dict]]:
             alert = _check_total_coherence(qu_val, pu_val, tot_val, row_idx, code_str)
             if alert:
                 alerts.append(alert)
+                # Ajoute l'erreur de calcul dans le commentaire de la ligne
+                if commentaire:
+                    commentaire += f" ; {alert['short_error']}"
+                else:
+                    commentaire = f"⚠️ {alert['short_error']}"
 
             # Point 7 : unité manquante (article avec montant mais sans unité)
             u_str = str(u).strip() if pd.notna(u) else ""

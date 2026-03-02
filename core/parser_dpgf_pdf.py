@@ -10,12 +10,13 @@ Retourne (DataFrame, list[dict]) — interface identique à parse_dpgf().
 
 from __future__ import annotations
 
+import re
 from decimal import Decimal
 
 import pandas as pd
 
 # Import des helpers numériques depuis parser_dpgf (source unique de vérité)
-from core.parser_dpgf import KEYWORDS, _clean_numeric, _looks_numeric
+from core.parser_dpgf import KEYWORDS, _check_total_coherence, _clean_numeric, _looks_numeric
 from core.utils import classify_row
 from logger import get_logger
 
@@ -117,12 +118,53 @@ def _extract_pdfplumber(filepath: str) -> list[list] | None:
                         rows.extend(tbl)
         return rows
 
+    def _extract_explicit() -> list[list]:
+        rows: list[list] = []
+        with pdfplumber.open(filepath) as pdf:
+            if not pdf.pages:
+                return []
+            tables = pdf.pages[0].find_tables(
+                {"vertical_strategy": "lines", "horizontal_strategy": "lines"}
+            )
+            if not tables:
+                return []
+            # Déduire les délimitations des colonnes à partir du 1er tableau trouvé
+            first_table = tables[0]
+            v_edges = sorted(
+                list(set([v[0] for v in first_table.cells] + [v[2] for v in first_table.cells]))
+            )
+            settings = {
+                "vertical_strategy": "explicit",
+                "explicit_vertical_lines": v_edges,
+                "horizontal_strategy": "text",
+            }
+            for page in pdf.pages:
+                for tbl in page.extract_tables(settings):
+                    if tbl:
+                        rows.extend(tbl)
+        return rows
+
     try:
         # Essai lattice (bordures)
-        rows = _extract_with("lines")
-        if rows and _find_header_idx(rows) is not None:
-            log.info("pdfplumber lattice : %d lignes", len(rows))
-            return rows
+        rows_lines = _extract_with("lines")
+        # Essai explicit vertical (utile quand les bordures s'arrêtent au milieu d'une page, ex ECMB SAS)
+        rows_explicit = _extract_explicit()
+
+        # On choisit la méthode extrayant le plus de données structurées
+        best_rows = rows_lines
+        if rows_explicit and len(rows_explicit) > len(rows_lines) * 1.5:
+            if _find_header_idx(rows_explicit) is not None:
+                log.info(
+                    "pdfplumber explicit : %d lignes (vs %d lines)",
+                    len(rows_explicit),
+                    len(rows_lines),
+                )
+                best_rows = rows_explicit
+
+        if best_rows and _find_header_idx(best_rows) is not None:
+            if best_rows is rows_lines:
+                log.info("pdfplumber lattice : %d lignes", len(best_rows))
+            return best_rows
 
         # Essai stream (alignement texte)
         rows = _extract_with("text")
@@ -130,7 +172,7 @@ def _extract_pdfplumber(filepath: str) -> list[list] | None:
             log.info("pdfplumber stream : %d lignes", len(rows))
             return rows
 
-        return rows or None
+        return best_rows or rows or None
 
     except Exception as exc:
         log.warning("pdfplumber erreur : %s", exc)
@@ -229,6 +271,119 @@ def _extract_pymupdf(filepath: str) -> list[list] | None:
 
 
 # ---------------------------------------------------------------------------
+# Pré-traitement : éclatement des cellules multi-lignes pdfplumber
+# ---------------------------------------------------------------------------
+
+
+def _explode_multiline_rows(rows: list[list]) -> list[list]:
+    """Éclate les lignes dont les cellules contiennent des \\n en lignes individuelles.
+
+    Certains PDFs ont leurs données compactées : pdfplumber retourne une seule
+    ligne pdfplumber dont chaque cellule contient N valeurs séparées par \\n.
+    Cette fonction détecte ce cas et produit N lignes individuelles.
+
+    Alignement intelligent : Code et Désignation ont N sous-valeurs et s'alignent
+    1:1. Les colonnes numériques (Qu/PU/Tot) avec M < N sous-valeurs sont
+    distribuées aux M lignes dont le code est le plus profond (le plus de
+    dot-segments), ce qui correspond aux articles/feuilles de l'arborescence.
+    """
+    # Déterminer le mapping de colonnes depuis l'en-tête
+    header_idx = _find_header_idx(rows)
+    code_col_idx: int | None = None
+    if header_idx is not None:
+        col_map = _map_cols(rows[header_idx])
+        code_col_idx = col_map.get("code")
+
+    result: list[list] = []
+    for row in rows:
+        if not row:
+            result.append(row)
+            continue
+
+        # Compter combien de cellules contiennent un \n
+        has_nl = sum(1 for c in row if isinstance(c, str) and "\n" in c)
+        if has_nl < 2:
+            result.append(row)
+            continue
+
+        # Éclater chaque cellule par \n
+        split_cells: list[list[str | None]] = []
+        max_parts = 1
+        for c in row:
+            if isinstance(c, str) and "\n" in c:
+                parts = c.split("\n")
+                split_cells.append(parts)
+                max_parts = max(max_parts, len(parts))
+            else:
+                split_cells.append([c])
+
+        # N = nombre de sous-lignes de référence (Code / Desig — toujours le plus grand)
+        n_ref = max_parts
+
+        # Calculer la profondeur (nb segments) de chaque code
+        code_depths: list[int] = []
+        if code_col_idx is not None and code_col_idx < len(split_cells):
+            code_parts = split_cells[code_col_idx]
+            for cval in code_parts:
+                c_clean = re.sub(r"\s+", "", str(cval or "")).replace(",", ".")
+                segs = [s for s in c_clean.split(".") if s.strip()]
+                code_depths.append(len(segs))
+            # Padder si code a moins de sous-valeurs que max_parts
+            while len(code_depths) < max_parts:
+                code_depths.append(0)
+        else:
+            code_depths = list(range(max_parts))  # fallback : identité
+
+        # Cache d'alignement : pour un nombre donné M de sous-valeurs,
+        # quels indices parmi les N lignes reçoivent ces M valeurs ?
+        _alignment_cache: dict[int, list[int]] = {}
+
+        def _get_target_indices(
+            m: int,
+            _alignment_cache=_alignment_cache,
+            n_ref=n_ref,
+            code_depths=code_depths,
+        ) -> list[int]:
+            """Retourne les m indices de lignes qui doivent recevoir les m sous-valeurs."""
+            if m in _alignment_cache:
+                return _alignment_cache[m]
+            if m >= n_ref:
+                # Autant ou plus de valeurs que de lignes → 1:1
+                indices = list(range(n_ref))
+            else:
+                # Sélectionner les m codes les plus profonds (feuilles de l'arbre)
+                # En cas d'égalité de profondeur, garder l'ordre d'apparition
+                indexed = [(depth, idx) for idx, depth in enumerate(code_depths[:n_ref])]
+                # Tri stable par profondeur DESC — les plus profonds en premier
+                indexed.sort(key=lambda x: -x[0])
+                top_m = indexed[:m]
+                # Re-trier par position originale pour garder l'ordre séquentiel
+                indices = sorted(idx for _, idx in top_m)
+            _alignment_cache[m] = indices
+            return indices
+
+        # Générer n_ref lignes individuelles
+        for i in range(n_ref):
+            new_row: list[str | None] = []
+            for parts in split_cells:
+                m = len(parts)
+                if m >= n_ref:
+                    # Colonne complète → alignement 1:1
+                    new_row.append(parts[i] if i < m else None)
+                else:
+                    # Colonne courte → distribuer aux indices cibles
+                    targets = _get_target_indices(m)
+                    if i in targets:
+                        pos = targets.index(i)
+                        new_row.append(parts[pos] if pos < m else None)
+                    else:
+                        new_row.append(None)
+            result.append(new_row)
+
+    return result
+
+
+# ---------------------------------------------------------------------------
 # Normalisation lignes brutes → DataFrame
 # ---------------------------------------------------------------------------
 
@@ -300,6 +455,11 @@ def _normalize_rows(rows: list[list], alerts: list[dict]) -> pd.DataFrame:
         tot_raw = _get("tot")
 
         code_str = str(code_raw or "").strip()
+        # Supprimer les espaces internes dans les codes — artefact courant de
+        # l'extraction PDF (PyMuPDF) où "02.1.1" devient "02 .1.1" car les
+        # segments sont des mots séparés dans le flux PDF.
+        # Un code DPGF légitime ne contient jamais d'espace.
+        code_str = re.sub(r"\s+", "", code_str)
         desig_str = str(desig_raw or "").strip()
 
         if not code_str and not desig_str:
@@ -322,32 +482,49 @@ def _normalize_rows(rows: list[list], alerts: list[dict]) -> pd.DataFrame:
             tot_val = _safe_decimal(tot_raw)
             qu_cmt = pu_cmt = tot_cmt = ""
 
-        comments = [c for c in [qu_cmt, pu_cmt, tot_cmt] if c]
+        # Filtrer les symboles monétaires résiduels des commentaires (artefact PDF)
+        _curr = {"€", "$", "£", "eur", "usd"}
+        comments = [c for c in [qu_cmt, pu_cmt, tot_cmt] if c and c.strip().lower() not in _curr]
         commentaire = "; ".join(comments) if comments else ""
         u_str = str(u_raw or "").strip()
 
         # Alerte mots-clés dans champs numériques (même logique que parser_dpgf)
-        if row_type == "article" and code_str and (qu_cmt or pu_cmt or tot_cmt):
-            kw_found = any(
-                c.lower() in KEYWORDS or c.lower() in KEYWORDS.values()
-                for c in [qu_cmt, pu_cmt, tot_cmt]
-                if c
+        # Les symboles monétaires résiduels sont déjà filtrés par _curr ci-dessus.
+        qu_cmt_clean = qu_cmt if qu_cmt.strip().lower() not in _curr else ""
+        pu_cmt_clean = pu_cmt if pu_cmt.strip().lower() not in _curr else ""
+        tot_cmt_clean = tot_cmt if tot_cmt.strip().lower() not in _curr else ""
+        if row_type == "article" and code_str:
+            alert = _check_total_coherence(
+                qu_val, pu_val, tot_val, header_idx + 1 + offset + 1, code_str
             )
-            atype = ("info", "blue") if kw_found else ("warning", "yellow")
-            msg = (
-                f"Mot-clé détecté : {commentaire}"
-                if kw_found
-                else f"Texte dans champ numérique : {commentaire}"
-            )
-            alerts.append(
-                {
-                    "type": atype[0],
-                    "color": atype[1],
-                    "row": header_idx + 1 + offset + 1,
-                    "code": code_str,
-                    "message": msg,
-                }
-            )
+            if alert:
+                alerts.append(alert)
+                if commentaire:
+                    commentaire += f" ; {alert['short_error']}"
+                else:
+                    commentaire = f"⚠️ {alert['short_error']}"
+
+            if qu_cmt_clean or pu_cmt_clean or tot_cmt_clean:
+                kw_found = any(
+                    c.lower() in KEYWORDS or c.lower() in KEYWORDS.values()
+                    for c in [qu_cmt, pu_cmt, tot_cmt]
+                    if c
+                )
+                atype = ("info", "blue") if kw_found else ("warning", "yellow")
+                msg = (
+                    f"Mot-clé détecté : {commentaire}"
+                    if kw_found
+                    else f"Texte dans champ numérique : {commentaire}"
+                )
+                alerts.append(
+                    {
+                        "type": atype[0],
+                        "color": atype[1],
+                        "row": header_idx + 1 + offset + 1,
+                        "code": code_str,
+                        "message": msg,
+                    }
+                )
 
         result_rows.append(
             {
@@ -408,6 +585,10 @@ def parse_dpgf_pdf(filepath: str) -> tuple[pd.DataFrame, list[dict]]:
         log.info("pdfplumber insuffisant — fallback PyMuPDF")
         rows = _extract_pymupdf(filepath)
         source = "PyMuPDF"
+    else:
+        # pdfplumber : exploser les cellules multi-lignes avant normalisation
+        rows = _explode_multiline_rows(rows)
+        log.info("Post-explosion pdfplumber : %d lignes", len(rows))
 
     if not rows:
         return pd.DataFrame(), [

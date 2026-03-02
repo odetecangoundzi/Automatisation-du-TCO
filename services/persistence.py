@@ -14,11 +14,21 @@ import os
 import re as _re
 import uuid
 from decimal import Decimal
+from typing import Any, Protocol
 
 import pandas as pd
 
 from config import PROJECTS_DIR, TVA_DEFAULT
 from logger import get_logger
+
+
+class _SessionLike(Protocol):
+    """Interface minimale compatible avec st.session_state et les mocks de test."""
+
+    def get(self, key: str, default: Any = None) -> Any: ...
+
+    def __setattr__(self, name: str, value: Any) -> None: ...
+
 
 log = get_logger(__name__)
 
@@ -97,8 +107,8 @@ def _migrate_v2_to_v3(data: dict) -> dict:
 # ---------------------------------------------------------------------------
 
 
-def _json_default(obj):
-    """Sérialise Decimal en float pour JSON."""
+def _json_default(obj: Any) -> float | str:
+    """Sérialise Decimal en float pour JSON (fallback str pour les autres types)."""
     if isinstance(obj, Decimal):
         return float(obj)
     return str(obj)
@@ -144,7 +154,7 @@ def _deserialize_lot(lot_raw: dict) -> dict:
 # ---------------------------------------------------------------------------
 
 
-def save_project(name: str, session_state) -> tuple[bool, str]:
+def save_project(name: str, session_state: _SessionLike) -> tuple[bool, str]:
     """
     Sauvegarde l'état actuel dans un fichier JSON compressé (format v3).
 
@@ -194,7 +204,7 @@ def save_project(name: str, session_state) -> tuple[bool, str]:
         return False, f"Erreur technique : {e}"
 
 
-def load_project(name: str, session_state) -> tuple[bool, str]:
+def load_project(name: str, session_state: _SessionLike) -> tuple[bool, str]:
     """
     Charge un projet depuis un fichier JSON compressé.
 
@@ -247,7 +257,9 @@ def load_project(name: str, session_state) -> tuple[bool, str]:
         return False, f"Erreur de lecture : {e}"
 
 
-def _migrate_legacy_project(name: str, legacy_path: str, session_state) -> tuple[bool, str]:
+def _migrate_legacy_project(
+    name: str, legacy_path: str, session_state: _SessionLike
+) -> tuple[bool, str]:
     """
     L'ancien format pickle (.tco) n'est plus supporté pour des raisons de sécurité.
 
