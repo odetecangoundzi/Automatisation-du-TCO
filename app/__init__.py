@@ -339,46 +339,6 @@ footer {{ visibility: hidden; }}
     box-shadow: 0 0 0 2px rgba(40, 167, 69, 0.4) !important;
 }}
 
-/* ── Step 0 Cards ────────────────────────────────────── */
-[data-testid="stVerticalBlockBorderWrapper"] {{
-    background: var(--card-bg);
-    border: 1px solid var(--border) !important;
-    border-top: 1px solid rgba(255, 255, 255, 0.4) !important;
-    border-left: 6px solid var(--accent) !important;
-    border-radius: 20px !important;
-    padding: 1.5rem !important;
-    box-shadow: 0 12px 35px var(--shadow-light), inset 0 0 15px rgba(255, 255, 255, 0.05);
-    backdrop-filter: blur(8px);
-    transition: all 0.4s cubic-bezier(0.165, 0.84, 0.44, 1);
-    position: relative;
-    overflow: hidden;
-}}
-[data-testid="stVerticalBlockBorderWrapper"]::after {{
-    content: "";
-    position: absolute;
-    top: 0; left: 0; right: 0; bottom: 0;
-    background: linear-gradient(135deg, rgba(255,255,255,0.05) 0%, rgba(255,255,255,0) 100%);
-    pointer-events: none;
-}}
-[data-testid="stVerticalBlockBorderWrapper"]:hover {{
-    border-color: var(--accent) !important;
-    box-shadow: 0 20px 50px var(--shadow);
-    transform: translateY(-6px) scale(1.01);
-}}
-[data-testid="stVerticalBlockBorderWrapper"] h3 {{
-    margin-top: 0 !important;
-    margin-bottom: 0.8rem !important;
-    font-size: 1.6rem !important;
-    font-weight: 700 !important;
-    color: var(--accent-dark);
-    letter-spacing: -0.5px;
-}}
-[data-testid="stVerticalBlockBorderWrapper"] p {{
-    font-size: 0.95rem;
-    color: var(--text-muted);
-    margin-bottom: 2rem !important;
-    line-height: 1.6;
-}}
 </style>
 """
 
