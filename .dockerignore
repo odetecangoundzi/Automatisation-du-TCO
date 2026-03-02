@@ -58,5 +58,7 @@ tco_final_detail.txt
 *.xlsm
 *.xlsb
 *.png
+!odetec_logo.png
+!tco.png
 *.pdf
 *.rar
