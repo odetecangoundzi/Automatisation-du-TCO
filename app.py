@@ -500,7 +500,9 @@ if st.session_state.step == 0:
                     for p in projects:
                         rcol_name, rcol_del = st.columns([7, 1])
                         with rcol_name:
-                            if st.button(f"📄 {p}", key=f"landing_load_{p}", use_container_width=True):
+                            if st.button(
+                                f"📄 {p}", key=f"landing_load_{p}", use_container_width=True
+                            ):
                                 ok, msg = load_project(p, st.session_state)
                                 if ok:
                                     st.session_state.pop("export_buffer", None)

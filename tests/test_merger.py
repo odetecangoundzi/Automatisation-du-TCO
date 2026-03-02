@@ -458,7 +458,9 @@ class TestComputeSectionTotals:
         compute_section_totals(df, "COMP_Px_Tot_HT", tva_rate=0.20)
 
         # Passe 1→2b : section_header vidée, recap porte le total
-        section_total = df[(df["Code"] == "1") & (df["row_type"] == "section_header")]["COMP_Px_Tot_HT"].iloc[0]
+        section_total = df[(df["Code"] == "1") & (df["row_type"] == "section_header")][
+            "COMP_Px_Tot_HT"
+        ].iloc[0]
         assert section_total is None
         recap_total = df[df["row_type"] == "recap"]["COMP_Px_Tot_HT"].iloc[0]
         assert recap_total == Decimal("300")
