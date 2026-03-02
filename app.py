@@ -232,7 +232,7 @@ def display_preview(df, title: str = "Aperçu") -> None:
     hidden_types = {"empty", "recap", "recap_summary", "total_line", "total_text"}
     visible = df[~df["row_type"].isin(hidden_types)][cols]
     st.write(f"**{title}** ({len(visible)} lignes)")
-    st.dataframe(visible, width="stretch", hide_index=True, height=500)
+    st.dataframe(visible, use_container_width=True, hide_index=True, height=500)
 
 
 def _cleanup_file(path: str) -> None:
@@ -255,7 +255,7 @@ if st.session_state.get("active_project") is not None:
     with st.sidebar:
         # Logo
         if os.path.exists("odetec_logo.png"):
-            st.image("odetec_logo.png", width="stretch")
+            st.image("odetec_logo.png", use_container_width=True)
 
         # Nom du projet + lot actif — bloc uni en haut de la sidebar
         curr_name = (st.session_state.get("active_project") or {}).get("project_name", "Sans titre")
@@ -297,7 +297,7 @@ if st.session_state.get("active_project") is not None:
             )
 
         # Nouveau lot — juste sous les cartes projet/lot
-        if st.button("➕ Nouveau lot", width="stretch", key="sidebar_new_lot"):
+        if st.button("➕ Nouveau lot", use_container_width=True, key="sidebar_new_lot"):
             st.session_state.active_lot_id = None
             st.session_state.step = 0
             st.session_state.pop("export_buffer", None)
@@ -306,7 +306,7 @@ if st.session_state.get("active_project") is not None:
         st.markdown("---")
 
         # Bouton Enregistrer
-        if st.button("💾 Enregistrer", width="stretch", key="sidebar_save"):
+        if st.button("💾 Enregistrer", use_container_width=True, key="sidebar_save"):
             ok, msg = save_project(curr_name, st.session_state)
             if ok:
                 _cached_list_projects.clear()
@@ -317,7 +317,7 @@ if st.session_state.get("active_project") is not None:
         st.markdown("---")
 
         # Retour a l'accueil
-        if st.button("🏠 Retour a l'accueil", width="stretch", type="primary"):
+        if st.button("🏠 Retour a l'accueil", use_container_width=True, type="primary"):
             st.session_state.active_project = None
             st.session_state.active_lot_id = None
             st.session_state.step = 0
@@ -334,7 +334,7 @@ if st.session_state.get("active_project") is not None:
             if not st.session_state.confirm_shutdown:
                 if st.button(
                     "❌ Fermer l'application",
-                    width="stretch",
+                    use_container_width=True,
                     help="Arrête le serveur Streamlit (admin uniquement)",
                 ):
                     st.session_state.confirm_shutdown = True
@@ -343,10 +343,10 @@ if st.session_state.get("active_project") is not None:
                 st.warning("⚠️ Arrêt du serveur — sauvegardez vos données.")
                 col_ok, col_no = st.columns(2)
                 with col_ok:
-                    if st.button("✅ Confirmer", width="stretch"):
+                    if st.button("✅ Confirmer", use_container_width=True):
                         os.kill(os.getpid(), signal.SIGTERM)
                 with col_no:
-                    if st.button("✗ Annuler", width="stretch"):
+                    if st.button("✗ Annuler", use_container_width=True):
                         st.session_state.confirm_shutdown = False
                         st.rerun()
 
@@ -390,7 +390,7 @@ def _render_project_lots_view(proj: dict) -> None:
                 if st.button(
                     f"{icon} {html_mod.escape(label)}",
                     key=f"open_lot_{lot['lot_id']}",
-                    width="stretch",
+                    use_container_width=True,
                 ):
                     st.session_state.active_lot_id = lot["lot_id"]
                     st.session_state.pop("export_buffer", None)
@@ -419,7 +419,7 @@ def _render_project_lots_view(proj: dict) -> None:
             label_visibility="collapsed",
         )
     with col_lot_btn:
-        add_lot_clicked = st.button("➕ Ajouter un lot", type="primary", width="stretch")
+        add_lot_clicked = st.button("➕ Ajouter un lot", type="primary", use_container_width=True)
 
     if add_lot_clicked:
         new_lot_label = new_lot_label.strip() if new_lot_label.strip() else "Nouveau lot"
@@ -449,7 +449,7 @@ if st.session_state.step == 0:
         col_logo_left, col_logo_mid, col_logo_right = st.columns([1, 2, 1])
         with col_logo_mid:
             if os.path.exists("odetec_logo.png"):
-                st.image("odetec_logo.png", width="stretch")
+                st.image("odetec_logo.png", use_container_width=True)
             st.markdown(f"<h1 class='main-title'>{APP_TITLE}</h1>", unsafe_allow_html=True)
             st.markdown(
                 "<p class='subtitle'>Solution intelligente pour la consolidation des DPGF et le remplissage du TCO.</p>",
@@ -500,7 +500,7 @@ if st.session_state.step == 0:
                     for p in projects:
                         rcol_name, rcol_del = st.columns([7, 1])
                         with rcol_name:
-                            if st.button(f"📄 {p}", key=f"landing_load_{p}", width="stretch"):
+                            if st.button(f"📄 {p}", key=f"landing_load_{p}", use_container_width=True):
                                 ok, msg = load_project(p, st.session_state)
                                 if ok:
                                     st.session_state.pop("export_buffer", None)
@@ -642,7 +642,7 @@ if st.session_state.step >= 1:
             if st.button(
                 "📊 Mode comparatif — comparer les offres sans estimation",
                 type="primary",
-                width="stretch",
+                use_container_width=True,
             ):
                 _active_lot_set("comparatif_mode", True)
                 st.session_state.step = 2
@@ -931,7 +931,7 @@ if st.session_state.step >= 3:
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             type="primary",
             on_click=_on_export_click,
-            width="stretch",
+            use_container_width=True,
         )
 
         if st.session_state.get("export_done"):
