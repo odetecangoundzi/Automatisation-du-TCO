@@ -881,34 +881,70 @@ def export_tco(
                         companies_with_warnings.add(comp)
 
             if max_severity == "error":
+                # Collect error messages for Commentaire
+                err_msgs = [a["message"] for a in alert_by_code[code] if a["type"] == "error"]
+                err_text = " | ".join(err_msgs)
                 if has_global_error or not companies_with_errors:
                     # Erreur non liée à une entreprise → ligne entière
                     for c in range(1, max_col + 1):
                         ws.cell(row=excel_row, column=c).fill = FILL_ERROR
+                    # Écrire la raison dans la colonne Commentaire de chaque entreprise
+                    _c_off = 7
+                    for _ in companies:
+                        _com_cell = ws.cell(row=excel_row, column=_c_off + 4)
+                        if not _com_cell.value:
+                            _com_cell.value = f"⚠ {err_text}"
+                        _c_off += 5
                 else:
-                    # Erreur ciblée → seulement les 4 colonnes de l'entreprise fautive
+                    # Erreur ciblée → seulement les 5 colonnes de l'entreprise fautive
                     for comp in companies_with_errors:
                         if comp in companies:
                             _ci = companies.index(comp)
-                            _sc = 7 + _ci * 4
-                            for c in range(_sc, _sc + 4):
+                            _sc = 7 + _ci * 5
+                            for c in range(_sc, _sc + 5):
                                 ws.cell(row=excel_row, column=c).fill = FILL_ERROR
+                            # Message dans Commentaire de cette entreprise
+                            _com_cell = ws.cell(row=excel_row, column=_sc + 4)
+                            if not _com_cell.value:
+                                comp_msgs = [
+                                    a["message"]
+                                    for a in alert_by_code[code]
+                                    if a["type"] == "error" and a.get("company", "") == comp
+                                ]
+                                if comp_msgs:
+                                    _com_cell.value = f"⚠ {' | '.join(comp_msgs)}"
 
             elif max_severity == "warning":
+                # Collect warning messages
+                warn_msgs = [a["message"] for a in alert_by_code[code] if a["type"] == "warning"]
+                warn_text = " | ".join(warn_msgs)
                 if companies_with_warnings:
-                    # Warning ciblé → 4 colonnes de l'entreprise concernée
+                    # Warning ciblé → 5 colonnes de l'entreprise concernée
                     for comp in companies_with_warnings:
                         if comp in companies:
                             _ci = companies.index(comp)
-                            _sc = 7 + _ci * 4
-                            for c in range(_sc, _sc + 4):
+                            _sc = 7 + _ci * 5
+                            for c in range(_sc, _sc + 5):
                                 ws.cell(row=excel_row, column=c).fill = FILL_WARNING
+                            # Message dans Commentaire de l'entreprise
+                            _com_cell = ws.cell(row=excel_row, column=_sc + 4)
+                            if not _com_cell.value:
+                                comp_msgs = [
+                                    a["message"]
+                                    for a in alert_by_code[code]
+                                    if a["type"] == "warning" and a.get("company", "") == comp
+                                ]
+                                if comp_msgs:
+                                    _com_cell.value = f"⚠ {' | '.join(comp_msgs)}"
                 else:
                     # Fallback global : colonne Commentaire de toutes les entreprises
                     _c_off = 7
                     for _ in companies:
-                        ws.cell(row=excel_row, column=_c_off + 3).fill = FILL_WARNING
-                        _c_off += 4
+                        ws.cell(row=excel_row, column=_c_off + 4).fill = FILL_WARNING
+                        _com_cell = ws.cell(row=excel_row, column=_c_off + 4)
+                        if not _com_cell.value:
+                            _com_cell.value = f"⚠ {warn_text}"
+                        _c_off += 5
 
         # Hauteur de ligne dynamique : s'adapte aux désignations longues qui wrappent.
         # Col B = 56.75 chars → ~55 chars utiles par ligne à 9pt.
@@ -938,12 +974,12 @@ def export_tco(
         # Colonnes entreprises
         c_off = 7
         for _ in companies:
-            tc = get_column_letter(c_off + 2)
+            tc = get_column_letter(c_off + 3)  # Px Tot HT est maintenant col +3
             if recap_row:
-                ws.cell(row=sh_row, column=c_off + 2, value=f"={tc}{recap_row}")
+                ws.cell(row=sh_row, column=c_off + 3, value=f"={tc}{recap_row}")
             elif art_rows:
-                ws.cell(row=sh_row, column=c_off + 2, value=_rows_to_sum_formula(tc, art_rows))
-            c_off += 4
+                ws.cell(row=sh_row, column=c_off + 3, value=_rows_to_sum_formula(tc, art_rows))
+            c_off += 5
 
     # Largeurs de colonnes — valeurs exactes de la référence
     ws.column_dimensions["A"].width = 9.5
