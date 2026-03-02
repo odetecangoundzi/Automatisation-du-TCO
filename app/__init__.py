@@ -301,7 +301,6 @@ html, body, [class*="css"] {{ font-family: 'Inter', sans-serif; }}
 /* ── Dataframe ────────────────────────────────────────── */
 [data-testid="stDataFrame"] {{
     border-radius: 8px;
-    overflow: hidden;
     border: 1px solid var(--border);
 }}
 
