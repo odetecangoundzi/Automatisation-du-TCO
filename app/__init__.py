@@ -237,18 +237,18 @@ html, body, [class*="css"] {{ font-family: 'Inter', sans-serif; }}
 [data-testid="stFileUploader"]:hover {{ border-color: var(--accent); }}
 /* Drag-over : utilisation du focus-within natif ou hover state */
 [data-testid="stFileUploader"]:focus-within,
-[data-testid="stFileUploader"]:has([data-testid="stFileUploadDropzone"]:hover) {
+[data-testid="stFileUploader"]:has([data-testid="stFileUploadDropzone"]:hover) {{
     border-color: var(--accent) !important;
     border-style: solid !important;
     background: rgba(68, 114, 196, 0.07) !important;
     box-shadow: 0 0 0 4px rgba(68, 114, 196, 0.2) !important;
     transform: scale(1.012);
-}
-[data-testid="stFileUploader"]:has([data-testid="stFileUploadDropzone"]:hover) section > div::after {
+}}
+[data-testid="stFileUploader"]:has([data-testid="stFileUploadDropzone"]:hover) section > div::after {{
     content: "⬇️ Relâchez pour importer";
     color: var(--accent);
     font-weight: 600;
-}
+}}
 [data-testid="stFileUploader"] section {{
     padding: 0 !important;
 }}
