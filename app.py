@@ -90,6 +90,7 @@ defaults = {
     "dark_mode": False,
     "export_done": False,
     "_flash_msg": None,  # P12 : message court affiché après rerun
+    "_last_autosave": None,  # Horodatage de la dernière auto-sauvegarde
 }
 for k, v in defaults.items():
     if k not in st.session_state:
@@ -207,6 +208,24 @@ def _on_export_click() -> None:
     st.session_state.export_done = True
 
 
+def _autosave() -> None:
+    """Sauvegarde silencieuse du projet actif.
+
+    Appelée après chaque action importante (import, fusion, ajout entreprise)
+    pour éviter la perte de données en cas de déconnexion ou de timeout Render.
+    """
+    proj = st.session_state.get("active_project")
+    if proj is None:
+        return
+    name = proj.get("project_name", "")
+    if not name:
+        return
+    ok, _ = save_project(name, st.session_state)
+    if ok:
+        _cached_list_projects.clear()
+        st.session_state["_last_autosave"] = datetime.now().strftime("%H:%M:%S")
+
+
 @st.cache_data(ttl=5)
 def _cached_list_projects() -> list[str]:
     """Liste des projets avec cache TTL=5 s pour éviter le scan disque à chaque rerun."""
@@ -257,55 +276,76 @@ if st.session_state.get("active_project") is not None:
         if os.path.exists("odetec_logo.png"):
             st.image("odetec_logo.png", use_container_width=True)
 
-        # Nom du projet + lot actif — bloc uni en haut de la sidebar
+        # Nom du projet — bloc en haut de la sidebar
         curr_name = (st.session_state.get("active_project") or {}).get("project_name", "Sans titre")
-        lot_label = _active_lot_get("lot_label", "")
+        st.markdown(
+            f"<div style='margin-bottom: 0.5rem;'>"
+            f"<div style='"
+            f"background: linear-gradient(135deg, #2F5496, #4472C4);"
+            f"color: white; padding: 10px 14px; border-radius: 10px;"
+            f"font-weight: 700; font-size: 0.95rem; word-break: break-word;'>"
+            f"📁 {html_mod.escape(curr_name)}</div>"
+            f"</div>",
+            unsafe_allow_html=True,
+        )
 
-        if lot_label:
-            # Projet en haut (grand), lot en dessous (plus petit) — bloc uni
+        # ── Liste des lots ──────────────────────────────────
+        lots_all = (st.session_state.get("active_project") or {}).get("lots", [])
+        active_lid = st.session_state.get("active_lot_id")
+
+        if lots_all:
             st.markdown(
-                f"<div style='margin-bottom: 0.75rem;'>"
-                f"<div style='"
-                f"background: linear-gradient(135deg, #2F5496, #4472C4);"
-                f"color: white; padding: 12px 16px;"
-                f"border-radius: 10px;"
-                f"font-weight: 700; font-size: 1.0rem; word-break: break-word;'>"
-                f"📁 {html_mod.escape(curr_name)}</div>"
-                f"<div style='height: 5px;'></div>"
-                f"<div style='"
-                f"background: #17375E;"
-                f"color: #FFD700; padding: 7px 16px;"
-                f"border-radius: 10px;"
-                f"font-weight: 600; font-size: 0.78rem; word-break: break-word;"
-                f"border-left: 4px solid #FFD700;"
-                f"letter-spacing: 0.02em;'>"
-                f"🏗️ {html_mod.escape(lot_label)}</div>"
-                f"</div>",
+                "<div style='font-size:0.75rem; text-transform:uppercase; "
+                "letter-spacing:0.08em; color:#8899aa; margin: 0.4rem 0 0.25rem;'>"
+                "Lots du projet</div>",
                 unsafe_allow_html=True,
             )
-        else:
-            # Pas de lot actif : projet seul
-            st.markdown(
-                f"<div style='margin-bottom: 0.75rem;'>"
-                f"<div style='"
-                f"background: linear-gradient(135deg, #2F5496, #4472C4);"
-                f"color: white; padding: 12px 16px; border-radius: 10px;"
-                f"font-weight: 700; font-size: 1.0rem; word-break: break-word;'>"
-                f"📁 {html_mod.escape(curr_name)}</div>"
-                f"</div>",
-                unsafe_allow_html=True,
-            )
+            for lot in lots_all:
+                is_active = lot["lot_id"] == active_lid
+                label = lot.get("lot_label", "Lot sans nom")
+                has_data = lot.get("tco_df") is not None
+                icon = "✅" if has_data else "📋"
 
-        # Nouveau lot — juste sous les cartes projet/lot
+                col_btn, col_del = st.sidebar.columns([7, 1])
+                with col_btn:
+                    btn_type = "primary" if is_active else "secondary"
+                    if st.button(
+                        f"{icon} {label}",
+                        key=f"sb_lot_{lot['lot_id']}",
+                        use_container_width=True,
+                        type=btn_type,
+                    ):
+                        if not is_active:
+                            st.session_state.active_lot_id = lot["lot_id"]
+                            st.session_state.pop("export_buffer", None)
+                            if lot.get("tco_df") is not None:
+                                st.session_state.step = 3 if lot.get("companies") else 1
+                            else:
+                                st.session_state.step = 1
+                            st.rerun()
+                with col_del:
+                    if st.button(
+                        "🗑️",
+                        key=f"sb_del_lot_{lot['lot_id']}",
+                        help=f"Supprimer le lot {label}",
+                    ):
+                        proj_cur = st.session_state.get("active_project", {})
+                        proj_cur["lots"] = [lt for lt in lots_all if lt["lot_id"] != lot["lot_id"]]
+                        if active_lid == lot["lot_id"]:
+                            st.session_state.active_lot_id = None
+                            st.session_state.step = 0
+                        st.rerun()
+
+        st.markdown("---")
+
+        # Nouveau lot
         if st.button("➕ Nouveau lot", use_container_width=True, key="sidebar_new_lot"):
             st.session_state.active_lot_id = None
             st.session_state.step = 0
             st.session_state.pop("export_buffer", None)
             st.rerun()
 
-        st.markdown("---")
-
-        # Bouton Enregistrer
+        # Bouton Enregistrer (manuel)
         if st.button("💾 Enregistrer", use_container_width=True, key="sidebar_save"):
             ok, msg = save_project(curr_name, st.session_state)
             if ok:
@@ -314,10 +354,16 @@ if st.session_state.get("active_project") is not None:
             else:
                 st.error(msg)
 
+        # Indicateur de dernière sauvegarde automatique
+        if st.session_state.get("_last_autosave"):
+            st.caption(f"🟢 Auto-sauvegardé à {st.session_state['_last_autosave']}")
+
         st.markdown("---")
 
         # Retour a l'accueil
         if st.button("🏠 Retour a l'accueil", use_container_width=True, type="primary"):
+            save_project(curr_name, st.session_state)  # save before leaving
+            _cached_list_projects.clear()
             st.session_state.active_project = None
             st.session_state.active_lot_id = None
             st.session_state.step = 0
@@ -327,9 +373,6 @@ if st.session_state.get("active_project") is not None:
         st.markdown("---")
 
         # Fermer l'application — réservé à l'administrateur
-        # Confirmation deux étapes : le warning s'affiche AVANT le kill
-        # (st.warning() est bufférisé et ne s'affiche pas si os.kill() est appelé
-        # dans le même cycle — d'où le rerun intermédiaire)
         if ADMIN_MODE:
             if not st.session_state.confirm_shutdown:
                 if st.button(
@@ -438,6 +481,7 @@ def _render_project_lots_view(proj: dict) -> None:
         st.session_state.active_lot_id = new_lot["lot_id"]
         st.session_state.pop("export_buffer", None)
         st.session_state.step = 1
+        _autosave()  # Auto-sauvegarde à la création du lot
         st.rerun()
 
 
@@ -809,6 +853,7 @@ if st.session_state.step >= 2:
                     st.session_state.upload_counter += 1  # réinitialise le widget uploader
                     st.session_state.step = 3
                     st.session_state.export_done = False
+                    _autosave()  # Auto-sauvegarde après fusion entreprises
                     st.rerun()
 
     if st.button("🔄 Reinitialiser ce lot"):
@@ -916,14 +961,16 @@ if st.session_state.step >= 3:
     _proj_norm = _normalize_filename(_proj_raw)
     _lot_norm = _normalize_filename(_lot_raw)
 
+    _date_stamp = datetime.now().strftime("%Y-%m-%d")
+
     if _proj_norm and _lot_norm:
-        filename = f"TCO_FINAL_{_proj_norm}_{_lot_norm}.xlsx"
+        filename = f"TCO_FINAL_{_proj_norm}_{_lot_norm}_{_date_stamp}.xlsx"
     elif _proj_norm:
-        filename = f"TCO_FINAL_{_proj_norm}.xlsx"
+        filename = f"TCO_FINAL_{_proj_norm}_{_date_stamp}.xlsx"
     elif _lot_norm:
-        filename = f"TCO_FINAL_{_lot_norm}.xlsx"
+        filename = f"TCO_FINAL_{_lot_norm}_{_date_stamp}.xlsx"
     else:
-        filename = "TCO_FINAL.xlsx"
+        filename = f"TCO_FINAL_{_date_stamp}.xlsx"
 
     # Pre-generation du buffer pour telechargement immediat
     try:
