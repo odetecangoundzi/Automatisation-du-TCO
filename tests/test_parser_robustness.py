@@ -138,6 +138,6 @@ def test_merge_valid(valid_tco, valid_dpgf):
     assert article_row["TEST_COMP_Px_Tot_HT"] == 150
     assert article_row["TEST_COMP_Px_U_HT"] == 15
 
-    # La ligne de section 01 doit avoir reçu le total de 150
+    # La section_header 01 est vidée (doublon éliminé), le recap porte le total
     section_row = merged_df[merged_df["Code"] == "01"].iloc[0]
-    assert section_row["TEST_COMP_Px_Tot_HT"] == 150
+    assert section_row["TEST_COMP_Px_Tot_HT"] is None

@@ -90,11 +90,11 @@ FILL_COMPANY_TINTS = [
 # Format ARGB 8 chars : "FFFFFFFF" = blanc opaque — correspond à fgColor.rgb de la référence
 FILL_WHITE = PatternFill(start_color="FFFFFF", end_color="FFFFFF", fill_type="solid")
 FILL_SECTION = FILL_WHITE
-FILL_RECAP = PatternFill(  # bleu ciel doux — lignes recap de section
-    start_color="DAEAF8", end_color="DAEAF8", fill_type="solid"
+FILL_RECAP = PatternFill(  # bleu moyen — sous-total de section, clairement distinct des articles
+    start_color="9DC3E6", end_color="9DC3E6", fill_type="solid"
 )
-FILL_RECAP_SUMMARY = PatternFill(  # bleu ciel doux — lignes du récapitulatif
-    start_color="DAEAF8", end_color="DAEAF8", fill_type="solid"
+FILL_RECAP_SUMMARY = PatternFill(  # bleu ciel doux — lignes du récapitulatif final
+    start_color="BDD7EE", end_color="BDD7EE", fill_type="solid"
 )
 FILL_TOTAL_LINE = FILL_WHITE
 FILL_RECAP_HEADER = PatternFill(  # marine foncé — bandeau titre récapitulatif
@@ -374,9 +374,13 @@ def export_tco(
     output_path: str | None = None,
     alerts: list[dict] | None = None,
     tva_rate: float = 0.20,
+    comparatif_mode: bool = False,
 ) -> str | io.BytesIO:
     """
     Exporte le TCO fusionné en fichier Excel formaté.
+
+    comparatif_mode=True : pas de DPGF estimation — les colonnes C-F (Qu./U/Px U/Px Tot)
+    sont masquées dans l'export, seules les colonnes entreprises sont visibles.
     """
     if alerts is None:
         alerts = []
@@ -422,8 +426,9 @@ def export_tco(
 
     # --- Header groupés ---
     ws.cell(row=header_row_1, column=2, value="Etudes")
-    ws.cell(row=header_row_1, column=3, value=" Estimation")
-    ws.merge_cells(start_row=header_row_1, start_column=3, end_row=header_row_1, end_column=6)
+    if not comparatif_mode:
+        ws.cell(row=header_row_1, column=3, value=" Estimation")
+        ws.merge_cells(start_row=header_row_1, start_column=3, end_row=header_row_1, end_column=6)
     # Col 1 (A1) incluse : fill obligatoire pour bloquer le débordement de B1 au scroll
     for c in range(1, 7):
         cell = ws.cell(row=header_row_1, column=c)
@@ -589,9 +594,11 @@ def export_tco(
 
         ws.cell(row=excel_row, column=1, value=code)
         ws.cell(row=excel_row, column=2, value=row["Désignation"])
-        ws.cell(row=excel_row, column=3, value=row.get("Qu."))
-        ws.cell(row=excel_row, column=4, value=row.get("U"))
-        ws.cell(row=excel_row, column=5, value=row.get("Px_U_HT"))
+        # section_header = titre de section, pas de données chiffrées
+        if row_type != "section_header":
+            ws.cell(row=excel_row, column=3, value=row.get("Qu."))
+            ws.cell(row=excel_row, column=4, value=row.get("U"))
+            ws.cell(row=excel_row, column=5, value=row.get("Px_U_HT"))
 
         # --- Colonne F : TCO / Estimation ---
         # FIX CAS 2/3/4 : sub_section ET article contribuent au total de leur section.
@@ -658,14 +665,19 @@ def export_tco(
                 ws.cell(row=excel_row, column=6, value=f"=C{excel_row}*E{excel_row}")
             else:
                 ws.cell(row=excel_row, column=6, value=row.get("Px_Tot_HT"))
+        elif row_type == "section_header":
+            # Titre de section : pas de montant affiché — le total est porté
+            # par la ligne recap en fin de section (évite le doublon visuel).
+            ws.cell(row=excel_row, column=6, value=None)
         else:
             ws.cell(row=excel_row, column=6, value=row.get("Px_Tot_HT"))
 
         # --- Colonnes Entreprises ---
         col_offset = 7
         for comp in companies:
-            ws.cell(row=excel_row, column=col_offset, value=row.get(f"{comp}_Qu."))
-            ws.cell(row=excel_row, column=col_offset + 1, value=row.get(f"{comp}_Px_U_HT"))
+            if row_type != "section_header":
+                ws.cell(row=excel_row, column=col_offset, value=row.get(f"{comp}_Qu."))
+                ws.cell(row=excel_row, column=col_offset + 1, value=row.get(f"{comp}_Px_U_HT"))
 
             qu_col = get_column_letter(col_offset)
             px_col = get_column_letter(col_offset + 1)
@@ -755,10 +767,14 @@ def export_tco(
                     ws.cell(
                         row=excel_row, column=col_offset + 2, value=row.get(f"{comp}_Px_Tot_HT")
                     )
+            elif row_type == "section_header":
+                # Titre de section : pas de montant entreprise (doublon avec la ligne recap)
+                ws.cell(row=excel_row, column=col_offset + 2, value=None)
             else:
                 ws.cell(row=excel_row, column=col_offset + 2, value=row.get(f"{comp}_Px_Tot_HT"))
 
-            ws.cell(row=excel_row, column=col_offset + 3, value=row.get(f"{comp}_Commentaire"))
+            if row_type != "section_header":
+                ws.cell(row=excel_row, column=col_offset + 3, value=row.get(f"{comp}_Commentaire"))
             col_offset += 4
 
         # --- Format numérique (appliqué à toutes les lignes) ---
@@ -952,6 +968,11 @@ def export_tco(
     # Hauteurs en-têtes : 14.25 pt (conforme référence)
     ws.row_dimensions[header_row_1].height = 14.25
     ws.row_dimensions[header_row_2].height = 14.25
+
+    # Mode comparatif : masquer les colonnes Estimation (C=Qu. D=U E=Px U HT F=Px Tot HT)
+    if comparatif_mode:
+        for _col_letter in ("C", "D", "E", "F"):
+            ws.column_dimensions[_col_letter].hidden = True
 
     # Freeze panes : lignes d'en-tête + colonnes A (Code) et B (Désignation) figées
     fix_freeze_panes(

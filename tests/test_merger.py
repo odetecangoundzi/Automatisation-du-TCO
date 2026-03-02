@@ -182,10 +182,14 @@ class TestMergeBasic:
         assert row["ACME_Px_U_HT"] == Decimal("25")
 
     def test_merge_section_total_propagated(self, minimal_tco_df, minimal_dpgf_df):
-        """La section_header '1' reçoit la somme des articles (250)."""
+        """La section_header '1' est vidée (doublon éliminé), le recap porte le total."""
         merged, _ = merge_company_into_tco(minimal_tco_df, minimal_dpgf_df, "ACME")
         section_row = merged[merged["Code"] == "1"].iloc[0]
-        assert section_row["ACME_Px_Tot_HT"] == Decimal("250")
+        # Passe 2b : section_header vidée pour éviter le doublon visuel
+        assert section_row["ACME_Px_Tot_HT"] is None
+        # Le total est porté par la ligne recap
+        recap_row = merged[merged["row_type"] == "recap"].iloc[0]
+        assert recap_row["ACME_Px_Tot_HT"] == Decimal("250")
 
 
 # ---------------------------------------------------------------------------
@@ -453,11 +457,9 @@ class TestComputeSectionTotals:
 
         compute_section_totals(df, "COMP_Px_Tot_HT", tva_rate=0.20)
 
-        # Passe 1 : section header = somme articles
-        section_total = df[df["Code"] == "1"]["COMP_Px_Tot_HT"].iloc[0]
-        assert section_total == Decimal("300")
-
-        # Passe 2 : recap = total section parente
+        # Passe 1→2b : section_header vidée, recap porte le total
+        section_total = df[(df["Code"] == "1") & (df["row_type"] == "section_header")]["COMP_Px_Tot_HT"].iloc[0]
+        assert section_total is None
         recap_total = df[df["row_type"] == "recap"]["COMP_Px_Tot_HT"].iloc[0]
         assert recap_total == Decimal("300")
 

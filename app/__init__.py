@@ -69,7 +69,7 @@ def get_full_css(is_dark: bool, hide_sidebar: bool = False) -> str:
     theme_vars = get_theme_vars(is_dark)
     sidebar_display = "none" if hide_sidebar else "block"
 
-    return f"""
+    css = f"""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
 
@@ -232,9 +232,22 @@ html, body, [class*="css"] {{ font-family: 'Inter', sans-serif; }}
     border: 2px dashed var(--border);
     border-radius: 10px;
     padding: 12px;
-    transition: border-color .2s;
+    transition: border-color .2s, box-shadow .2s, background .2s, transform .2s;
 }}
 [data-testid="stFileUploader"]:hover {{ border-color: var(--accent); }}
+/* Drag-over : bordure solide + teinte + légère mise en valeur */
+[data-testid="stFileUploader"].drag-active {{
+    border-color: var(--accent) !important;
+    border-style: solid !important;
+    background: rgba(68, 114, 196, 0.07) !important;
+    box-shadow: 0 0 0 4px rgba(68, 114, 196, 0.2) !important;
+    transform: scale(1.012);
+}}
+[data-testid="stFileUploader"].drag-active section > div::after {{
+    content: "⬇️ Relâchez pour importer";
+    color: var(--accent);
+    font-weight: 600;
+}}
 [data-testid="stFileUploader"] section {{
     padding: 0 !important;
 }}
@@ -307,6 +320,25 @@ footer {{ visibility: hidden; }}
     display: {sidebar_display} !important;
 }}
 
+/* ── Champ "Nom du projet" — comportement de focus et remplissage ── */
+/* 1. Neutralise le rouge Streamlit au clic (champ vide) */
+[data-testid="stVerticalBlockBorderWrapper"] [data-testid="stTextInput"] input:focus {{
+    border-color: var(--accent) !important;
+    box-shadow: 0 0 0 2px rgba(68, 114, 196, 0.25) !important;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}}
+/* 2. Bordure verte quand le champ contient une valeur */
+[data-testid="stVerticalBlockBorderWrapper"] [data-testid="stTextInput"] input:not(:placeholder-shown) {{
+    border-color: #28a745 !important;
+    box-shadow: 0 0 0 2px rgba(40, 167, 69, 0.25) !important;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}}
+/* 3. Verte aussi quand rempli ET en focus (priorité sur la règle bleue) */
+[data-testid="stVerticalBlockBorderWrapper"] [data-testid="stTextInput"] input:not(:placeholder-shown):focus {{
+    border-color: #28a745 !important;
+    box-shadow: 0 0 0 2px rgba(40, 167, 69, 0.4) !important;
+}}
+
 /* ── Step 0 Cards ────────────────────────────────────── */
 [data-testid="stVerticalBlockBorderWrapper"] {{
     background: var(--card-bg);
@@ -349,3 +381,35 @@ footer {{ visibility: hidden; }}
 }}
 </style>
 """
+
+    js = """<script>
+(function () {
+    function attachDrag() {
+        document.querySelectorAll('[data-testid="stFileUploader"]').forEach(function (el) {
+            if (el._dragBound) return;
+            el._dragBound = true;
+            el.addEventListener('dragenter', function (e) {
+                e.preventDefault();
+                el.classList.add('drag-active');
+            });
+            el.addEventListener('dragover', function (e) {
+                e.preventDefault();
+                el.classList.add('drag-active');
+            });
+            el.addEventListener('dragleave', function (e) {
+                if (!el.contains(e.relatedTarget)) {
+                    el.classList.remove('drag-active');
+                }
+            });
+            el.addEventListener('drop', function () {
+                el.classList.remove('drag-active');
+            });
+        });
+    }
+    attachDrag();
+    new MutationObserver(attachDrag).observe(document.body, { childList: true, subtree: true });
+}());
+</script>
+"""
+
+    return css + js

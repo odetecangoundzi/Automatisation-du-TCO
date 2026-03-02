@@ -565,6 +565,13 @@ def compute_section_totals(
             if val is not None:
                 df.at[idx, total_col] = val
 
+    # Passe 3b : vider les section_headers — le total est désormais porté
+    # uniquement par la ligne recap (évite le doublon visuel section_header / recap).
+    # Placé après Passe 3 car recap_summary lit encore la valeur depuis section_header.
+    for idx, row in df.iterrows():
+        if row["row_type"] == "section_header":
+            df.at[idx, total_col] = None
+
     # Passe 4 : Montant HT / TVA / TTC — somme des recap_summary (= lignes du récapitulatif)
     # Les recap_summary ont été remplis en Passe 3 depuis leur section_header,
     # donc leur somme reflète exactement ce qui est affiché dans le récapitulatif.

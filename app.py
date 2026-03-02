@@ -174,8 +174,18 @@ def rebuild_merged_tco(tva_rate=TVA_DEFAULT, new_companies: list[str] | None = N
     puis met à jour session_state via _active_lot_set().
     """
     tco_df = _active_lot_get("tco_df")
+
     if tco_df is None:
-        return
+        # Mode comparatif : pas de DPGF estimation — on utilise le 1er DPGF entreprise
+        # comme structure de base (codes + désignations + hiérarchie), prix vidés.
+        companies_data = _active_lot_get("companies", {})
+        if not companies_data:
+            return
+        first_comp = next(iter(companies_data.values()))
+        tco_df = first_comp["dpgf_df"].copy()
+        for col in ("Qu.", "Px_U_HT", "Px_Tot_HT"):
+            if col in tco_df.columns:
+                tco_df[col] = None
 
     merged_df, alerts = _ctrl_rebuild(
         tco_df,
@@ -464,7 +474,7 @@ if st.session_state.step == 0:
                 )
 
                 st.markdown("<div style='height: 10px;'></div>", unsafe_allow_html=True)
-                if st.button("🚀 Creer le projet", type="primary", width="stretch"):
+                if st.button("🚀 Creer le projet", type="primary", use_container_width=True):
                     if new_proj_name:
                         st.session_state.active_project = {
                             "project_id": uuid.uuid4().hex,
@@ -550,6 +560,15 @@ if st.session_state.step >= 1:
         label_visibility="visible",
     )
 
+    # Détection du retrait via le X du widget : si le fichier est supprimé du widget
+    # mais que tco_df est encore en session, on remet à zéro pour que le bouton
+    # "Mode comparatif" réapparaisse.
+    if not tco_file and _active_lot_get("tco_df") is not None:
+        _active_lot_set("tco_df", None)
+        _active_lot_set("tco_meta", None)
+        _active_lot_set("merged_df", None)
+        st.rerun()
+
     if tco_file and _active_lot_get("tco_df") is None:
         path = _safe_save(tco_file)
         if path:
@@ -609,8 +628,23 @@ if st.session_state.step >= 1:
                 rebuild_merged_tco(new_tva)
             st.rerun()
 
-        if st.session_state.step == 1:
+    # Boutons de navigation — visibles quelle que soit l'étape de chargement
+    if st.session_state.step == 1:
+        if _active_lot_get("tco_df") is not None:
             if st.button("➡️ Passer a l'etape suivante", type="primary"):
+                st.session_state.step = 2
+                st.rerun()
+        else:
+            st.info(
+                "💡 Pas de DPGF estimation disponible ? "
+                "Importez directement les DPGFs entreprises pour les comparer."
+            )
+            if st.button(
+                "📊 Mode comparatif — comparer les offres sans estimation",
+                type="primary",
+                width="stretch",
+            ):
+                _active_lot_set("comparatif_mode", True)
                 st.session_state.step = 2
                 st.rerun()
 
@@ -624,6 +658,9 @@ if st.session_state.step >= 2:
         "<div class='step-header'>📥 Etape 2 : charger les DPGF fournis par les entreprises</div>",
         unsafe_allow_html=True,
     )
+
+    if _active_lot_get("comparatif_mode", False):
+        st.info("📊 **Mode comparatif** — pas de colonne Estimation dans l'export.")
 
     st.divider()
 
@@ -753,6 +790,7 @@ if st.session_state.step >= 2:
                         new_companies=added_companies,
                     )
                     st.session_state.pop("export_buffer", None)
+                    st.session_state.upload_counter += 1  # réinitialise le widget uploader
                     st.session_state.step = 3
                     st.session_state.export_done = False
                     st.rerun()
@@ -771,6 +809,7 @@ if st.session_state.step >= 2:
                     "all_alerts": [],
                     "companies": {},
                     "tva_rate": TVA_DEFAULT,
+                    "comparatif_mode": False,
                 }
             )
         st.session_state.step = 1
@@ -882,6 +921,7 @@ if st.session_state.step >= 3:
                     output_path=None,
                     alerts=all_alerts,
                     tva_rate=_active_lot_get("tva_rate", TVA_DEFAULT),
+                    comparatif_mode=_active_lot_get("comparatif_mode", False),
                 )
 
         st.download_button(
