@@ -103,6 +103,7 @@ def _build_new_row(
     code: str,
     dpgf_row: "pd.Series",
     merged_df: "pd.DataFrame",
+    col_u: str,
     col_qu: str,
     col_pu: str,
     col_tot: str,
@@ -125,11 +126,14 @@ def _build_new_row(
         "row_type": "article",
         "original_row": original_row_idx,
         "parent_code": parent_code,
-        "is_extra_line": True,  # Tag to identify lines not in original model
+        "is_extra_line": True,
     }
     for col in merged_df.columns:
-        if any(suffix in col for suffix in ["_Qu.", "_Px_U_HT", "_Px_Tot_HT", "_Commentaire"]):
+        if any(
+            suffix in col for suffix in ["_U.", "_Qu.", "_Px_U_HT", "_Px_Tot_HT", "_Commentaire"]
+        ):
             new_row[col] = None
+    new_row[col_u] = dpgf_row.get("U.", "")
     new_row[col_qu] = dpgf_row["Qu."]
     new_row[col_pu] = dpgf_row["Px_U_HT"]
     new_row[col_tot] = dpgf_row["Px_Tot_HT"]
@@ -197,11 +201,13 @@ def merge_company_into_tco(
     merged_df = tco_df.copy()
     alerts = []
 
+    col_u = f"{company_name}_U."
     col_qu = f"{company_name}_Qu."
     col_pu = f"{company_name}_Px_U_HT"
     col_tot = f"{company_name}_Px_Tot_HT"
     col_com = f"{company_name}_Commentaire"
 
+    merged_df[col_u] = None
     merged_df[col_qu] = None
     merged_df[col_pu] = None
     merged_df[col_tot] = None
@@ -253,6 +259,7 @@ def merge_company_into_tco(
 
         if code in tco_code_index:
             idx = tco_code_index[code]
+            merged_df.at[idx, col_u] = dpgf_row.get("U.", "")
             merged_df.at[idx, col_qu] = dpgf_row["Qu."]
             merged_df.at[idx, col_pu] = dpgf_row["Px_U_HT"]
             merged_df.at[idx, col_tot] = dpgf_row["Px_Tot_HT"]
@@ -281,14 +288,17 @@ def merge_company_into_tco(
                 except (ValueError, TypeError):
                     pass
 
-                # Check Unit mismatch
+                # Check Unit mismatch — signalé comme ERREUR (rouge)
                 if tco_u and dpgf_u and tco_u != dpgf_u:
                     alerts.append(
                         {
-                            "type": "warning",
-                            "color": "orange",
+                            "type": "error",
+                            "color": "red",
                             "code": code,
-                            "message": f"Unité modifiée par rapport au modèle ({tco_u} vs {dpgf_u})",
+                            "message": (
+                                f"Unité différente de l'estimation : "
+                                f"estim.='{tco_u.upper()}' vs {company_name}='{dpgf_u.upper()}'"
+                            ),
                         }
                     )
 
@@ -306,6 +316,7 @@ def merge_company_into_tco(
                         code,
                         dpgf_row,
                         merged_df,
+                        col_u,
                         col_qu,
                         col_pu,
                         col_tot,
@@ -338,6 +349,7 @@ def merge_company_into_tco(
                                 code,
                                 dpgf_row,
                                 merged_df,
+                                col_u,
                                 col_qu,
                                 col_pu,
                                 col_tot,

@@ -447,7 +447,7 @@ def export_tco(
     company_start_col = 7
     for comp_idx, comp in enumerate(companies):
         start_col = company_start_col
-        end_col = start_col + 3
+        end_col = start_col + 4  # 5 colonnes : U. Qu. Px U. HT Px Tot HT Commentaire
         ws.cell(row=header_row_1, column=start_col, value=comp)
         ws.merge_cells(
             start_row=header_row_1, start_column=start_col, end_row=header_row_1, end_column=end_col
@@ -472,15 +472,15 @@ def export_tco(
     col_offset = 7
     for comp_idx, _comp in enumerate(companies):
         fill = FILL_COMPANY_COLORS[comp_idx % len(FILL_COMPANY_COLORS)]
-        for i, header in enumerate(["Qu.", "Px U. HT", "Px Tot HT", "Commentaire poste"]):
+        for i, header in enumerate(["U.", "Qu.", "Px U. HT", "Px Tot HT", "Commentaire poste"]):
             cell = ws.cell(row=header_row_2, column=col_offset + i, value=header)
             cell.font = FONT_HEADER
             cell.fill = fill
             cell.alignment = Alignment(horizontal="center")
             cell.border = THIN_BORDER
-        col_offset += 4
+        col_offset += 5
 
-    max_col = 6 + len(companies) * 4
+    max_col = 6 + len(companies) * 5
 
     # Index des alertes par code
     alert_by_code = {}
@@ -676,17 +676,18 @@ def export_tco(
         col_offset = 7
         for comp in companies:
             if row_type != "section_header":
-                ws.cell(row=excel_row, column=col_offset, value=row.get(f"{comp}_Qu."))
-                ws.cell(row=excel_row, column=col_offset + 1, value=row.get(f"{comp}_Px_U_HT"))
+                ws.cell(row=excel_row, column=col_offset, value=row.get(f"{comp}_U."))
+                ws.cell(row=excel_row, column=col_offset + 1, value=row.get(f"{comp}_Qu."))
+                ws.cell(row=excel_row, column=col_offset + 2, value=row.get(f"{comp}_Px_U_HT"))
 
-            qu_col = get_column_letter(col_offset)
-            px_col = get_column_letter(col_offset + 1)
-            tot_col = get_column_letter(col_offset + 2)
+            qu_col = get_column_letter(col_offset + 1)
+            px_col = get_column_letter(col_offset + 2)
+            tot_col = get_column_letter(col_offset + 3)
 
             if row_type == "article":
                 ws.cell(
                     row=excel_row,
-                    column=col_offset + 2,
+                    column=col_offset + 3,
                     value=f"={qu_col}{excel_row}*{px_col}{excel_row}",
                 )
             elif row_type == "recap":
@@ -694,64 +695,61 @@ def export_tco(
                 if rows:
                     ws.cell(
                         row=excel_row,
-                        column=col_offset + 2,
+                        column=col_offset + 3,
                         value=_rows_to_sum_formula(tot_col, rows),
                     )
                 else:
-                    ws.cell(row=excel_row, column=col_offset + 2, value=0)
+                    ws.cell(row=excel_row, column=col_offset + 3, value=0)
             elif row_type == "recap_summary":
-                # Cascade : 1) recap interne, 2) SUM articles, 3) valeur statique
                 target_row = section_total_row.get(code)
                 art_rows = section_articles.get(code, [])
                 if target_row:
-                    ws.cell(row=excel_row, column=col_offset + 2, value=f"={tot_col}{target_row}")
+                    ws.cell(row=excel_row, column=col_offset + 3, value=f"={tot_col}{target_row}")
                 elif art_rows:
                     ws.cell(
                         row=excel_row,
-                        column=col_offset + 2,
+                        column=col_offset + 3,
                         value=_rows_to_sum_formula(tot_col, art_rows),
                     )
                 else:
                     ws.cell(
-                        row=excel_row, column=col_offset + 2, value=row.get(f"{comp}_Px_Tot_HT")
+                        row=excel_row, column=col_offset + 3, value=row.get(f"{comp}_Px_Tot_HT")
                     )
             elif _RE_MONTANT_HT.search(desig_lower):
-                # Même fallback que col F : recap_summary ou section_total_row
                 _sum_rows = recap_summary_rows or list(section_total_row.values())
                 if _sum_rows:
                     ws.cell(
                         row=excel_row,
-                        column=col_offset + 2,
+                        column=col_offset + 3,
                         value=_rows_to_sum_formula(tot_col, _sum_rows),
                     )
                 else:
                     ws.cell(
-                        row=excel_row, column=col_offset + 2, value=row.get(f"{comp}_Px_Tot_HT")
+                        row=excel_row, column=col_offset + 3, value=row.get(f"{comp}_Px_Tot_HT")
                     )
             elif _RE_TVA_ONLY.search(desig_lower) and not _RE_HT_ONLY.search(desig_lower):
                 if ht_row_idx is not None:
                     ws.cell(
                         row=excel_row,
-                        column=col_offset + 2,
+                        column=col_offset + 3,
                         value=f"={tot_col}{ht_row_idx}*{tva_rate}",
                     )
                 else:
                     ws.cell(
-                        row=excel_row, column=col_offset + 2, value=row.get(f"{comp}_Px_Tot_HT")
+                        row=excel_row, column=col_offset + 3, value=row.get(f"{comp}_Px_Tot_HT")
                     )
             elif _RE_MONTANT_TTC.search(desig_lower):
                 if ht_row_idx is not None and tva_row_idx is not None:
                     ws.cell(
                         row=excel_row,
-                        column=col_offset + 2,
+                        column=col_offset + 3,
                         value=f"={tot_col}{ht_row_idx}+{tot_col}{tva_row_idx}",
                     )
                 else:
                     ws.cell(
-                        row=excel_row, column=col_offset + 2, value=row.get(f"{comp}_Px_Tot_HT")
+                        row=excel_row, column=col_offset + 3, value=row.get(f"{comp}_Px_Tot_HT")
                     )
             elif row_type == "sub_section":
-                # PARTIE 3 : formule dynamique si données présentes
                 try:
                     comp_qu = float(row.get(f"{comp}_Qu.", 0) or 0)
                     comp_px = float(row.get(f"{comp}_Px_U_HT", 0) or 0)
@@ -760,22 +758,21 @@ def export_tco(
                 if comp_qu != 0 and comp_px != 0:
                     ws.cell(
                         row=excel_row,
-                        column=col_offset + 2,
+                        column=col_offset + 3,
                         value=f"={qu_col}{excel_row}*{px_col}{excel_row}",
                     )
                 else:
                     ws.cell(
-                        row=excel_row, column=col_offset + 2, value=row.get(f"{comp}_Px_Tot_HT")
+                        row=excel_row, column=col_offset + 3, value=row.get(f"{comp}_Px_Tot_HT")
                     )
             elif row_type == "section_header":
-                # Titre de section : pas de montant entreprise (doublon avec la ligne recap)
-                ws.cell(row=excel_row, column=col_offset + 2, value=None)
+                ws.cell(row=excel_row, column=col_offset + 3, value=None)
             else:
-                ws.cell(row=excel_row, column=col_offset + 2, value=row.get(f"{comp}_Px_Tot_HT"))
+                ws.cell(row=excel_row, column=col_offset + 3, value=row.get(f"{comp}_Px_Tot_HT"))
 
             if row_type != "section_header":
-                ws.cell(row=excel_row, column=col_offset + 3, value=row.get(f"{comp}_Commentaire"))
-            col_offset += 4
+                ws.cell(row=excel_row, column=col_offset + 4, value=row.get(f"{comp}_Commentaire"))
+            col_offset += 5
 
         # --- Format numérique (appliqué à toutes les lignes) ---
         ws.cell(row=excel_row, column=3).number_format = QTY_FORMAT  # Qu. TCO
@@ -783,14 +780,11 @@ def export_tco(
         ws.cell(row=excel_row, column=6).number_format = MONEY_FORMAT  # Px Tot HT TCO
         _ncol = 7
         for _ in companies:
-            ws.cell(row=excel_row, column=_ncol).number_format = QTY_FORMAT  # Qu. entreprise
-            ws.cell(
-                row=excel_row, column=_ncol + 1
-            ).number_format = MONEY_FORMAT  # Px U HT entreprise
-            ws.cell(
-                row=excel_row, column=_ncol + 2
-            ).number_format = MONEY_FORMAT  # Px Tot HT entreprise
-            _ncol += 4
+            # col +0 = U. (texte) — pas de format numérique
+            ws.cell(row=excel_row, column=_ncol + 1).number_format = QTY_FORMAT  # Qu.
+            ws.cell(row=excel_row, column=_ncol + 2).number_format = MONEY_FORMAT  # Px U HT
+            ws.cell(row=excel_row, column=_ncol + 3).number_format = MONEY_FORMAT  # Px Tot HT
+            _ncol += 5
 
         # --- Style ---
         font, fill = _get_row_style(row_type)
@@ -959,11 +953,12 @@ def export_tco(
     ws.column_dimensions["E"].width = 14.125
     ws.column_dimensions["F"].width = 16.5
     for _ci in range(len(companies)):
-        _cb = 7 + _ci * 4
-        ws.column_dimensions[get_column_letter(_cb)].width = 9.5  # Qu.
-        ws.column_dimensions[get_column_letter(_cb + 1)].width = 14.125  # Px U HT
-        ws.column_dimensions[get_column_letter(_cb + 2)].width = 16.5  # Px Tot HT
-        ws.column_dimensions[get_column_letter(_cb + 3)].width = 25.0  # Commentaire
+        _cb = 7 + _ci * 5
+        ws.column_dimensions[get_column_letter(_cb)].width = 6.0  # U.
+        ws.column_dimensions[get_column_letter(_cb + 1)].width = 9.5  # Qu.
+        ws.column_dimensions[get_column_letter(_cb + 2)].width = 14.125  # Px U HT
+        ws.column_dimensions[get_column_letter(_cb + 3)].width = 16.5  # Px Tot HT
+        ws.column_dimensions[get_column_letter(_cb + 4)].width = 25.0  # Commentaire
 
     # Hauteurs en-têtes : 14.25 pt (conforme référence)
     ws.row_dimensions[header_row_1].height = 14.25
