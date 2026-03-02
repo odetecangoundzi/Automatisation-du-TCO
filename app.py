@@ -286,6 +286,13 @@ if st.session_state.get("active_project") is not None:
                 unsafe_allow_html=True,
             )
 
+        # Nouveau lot — juste sous les cartes projet/lot
+        if st.button("➕ Nouveau lot", width="stretch", key="sidebar_new_lot"):
+            st.session_state.active_lot_id = None
+            st.session_state.step = 0
+            st.session_state.pop("export_buffer", None)
+            st.rerun()
+
         st.markdown("---")
 
         # Bouton Enregistrer
@@ -559,10 +566,13 @@ if st.session_state.step >= 1:
                     _active_lot_set("merged_df", tco_df.copy())
 
                     # Mettre a jour le label et le numero de lot depuis les metadonnees
+                    # N'ecrase le label que si le TCO contient une info lot — sinon
+                    # on conserve le nom saisi par l'utilisateur lors de la creation du lot.
                     lot_raw = ((meta.get("project_info") or {}).get("lot") or "").strip()
-                    m = re.search(r"\b(\d{2})\b", lot_raw)
-                    _active_lot_set("lot_label", lot_raw or "LOT INCONNU")
-                    _active_lot_set("lot_num", m.group(1) if m else "")
+                    if lot_raw:
+                        _active_lot_set("lot_label", lot_raw)
+                        m = re.search(r"\b(\d{2})\b", lot_raw)
+                        _active_lot_set("lot_num", m.group(1) if m else "")
 
                     info = meta["project_info"]
                     if info:

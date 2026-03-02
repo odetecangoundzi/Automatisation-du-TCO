@@ -953,12 +953,12 @@ def export_tco(
     ws.row_dimensions[header_row_1].height = 14.25
     ws.row_dimensions[header_row_2].height = 14.25
 
-    # Freeze panes : uniquement les lignes d'en-tête (0 colonne figée)
+    # Freeze panes : lignes d'en-tête + colonnes A (Code) et B (Désignation) figées
     fix_freeze_panes(
-        ws, header_rows=header_row_2, frozen_cols=0
-    )  # A{header_row_2 + 1} : lignes 1-header_row_2 figées, colonnes libres
+        ws, header_rows=header_row_2, frozen_cols=2
+    )  # C{header_row_2 + 1} : lignes 1-header_row_2 + cols A-B figées
     fix_merged_cells_crossing_freeze(
-        ws, header_rows=header_row_2, frozen_cols=0
+        ws, header_rows=header_row_2, frozen_cols=2
     )  # retire fusions qui traversent la frontière de freeze
     prevent_text_overflow(
         ws, min_row=header_row_2 + 1, max_col=max_col
