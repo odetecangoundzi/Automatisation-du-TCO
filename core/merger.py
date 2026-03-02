@@ -103,6 +103,259 @@ def _detect_malformed_code(raw_code: object) -> tuple[bool, str]:
     return is_malformed, normalized
 
 
+def _similar_codes(code: str, tco_codes: set[str], max_candidates: int = 2) -> list[str]:
+    """Trouve les codes TCO les plus proches d'un code inconnu.
+
+    Utilise la distance de Levenshtein simplifiée pour détecter les erreurs
+    de frappe : chiffres transposés, segment manquant, etc.
+    Retourne jusqu'à `max_candidates` codes similaires (distance ≤ 2).
+    """
+    if not code or not tco_codes:
+        return []
+
+    candidates = []
+    for tco in tco_codes:
+        # Filtrer rapidement sur le premier segment (même section)
+        if code.split(".")[0] != tco.split(".")[0]:
+            continue
+        # Distance caractère naïve (insertion/suppression/substitution)
+        dist = _levenshtein(code, tco)
+        if dist <= 2:
+            candidates.append((dist, tco))
+
+    candidates.sort()
+    return [c for _, c in candidates[:max_candidates]]
+
+
+def _levenshtein(a: str, b: str) -> int:
+    """Distance de Levenshtein entre deux chaînes."""
+    if a == b:
+        return 0
+    if not a:
+        return len(b)
+    if not b:
+        return len(a)
+    prev = list(range(len(b) + 1))
+    for i, ca in enumerate(a, 1):
+        curr = [i]
+        for j, cb in enumerate(b, 1):
+            curr.append(min(prev[j] + 1, curr[j - 1] + 1, prev[j - 1] + (0 if ca == cb else 1)))
+        prev = curr
+    return prev[len(b)]
+
+
+def _qc_check_dpgf_row(
+    dpgf_row: "pd.Series",
+    code: str,
+    company_name: str,
+    tco_desig: str,
+    tco_codes: set[str],
+    is_code_matched: bool,
+) -> list[dict]:
+    """Contrôle qualité complet d'une ligne DPGF.
+
+    Vérifie :
+    1. Erreur de calcul : Qu × Px_U_HT ≠ Px_Tot_HT (tolérance 1%)
+    2. Désignation vide
+    3. Prix unitaire manquant (Qu. renseigné mais Px_U_HT absent)
+    4. Quantité nulle avec prix non nul
+    5. Valeurs négatives (prix ou quantité)
+    6. Texte dans colonne numérique (Qu. ou Prix)
+    7. Code non trouvé dans le TCO → chercher un code proche
+    8. Désignation très différente du TCO (similarité < 40%)
+
+    Returns:
+        Liste d'alertes {type, color, code, message}.
+    """
+    alerts: list[dict] = []
+    row_type = dpgf_row.get("row_type", "article")
+    if row_type not in ("article", "sub_section"):
+        return alerts
+
+    desig = str(dpgf_row.get("Désignation", "") or "").strip()
+    raw_qu = dpgf_row.get("Qu.")
+    raw_pu = dpgf_row.get("Px_U_HT")
+    raw_tot = dpgf_row.get("Px_Tot_HT")
+
+    # --- Helpers de conversion ---
+    def _to_float(v: object) -> "float | None":
+        if v is None:
+            return None
+        try:
+            return float(v)
+        except (ValueError, TypeError):
+            return None
+
+    def _is_text_in_num(v: object) -> bool:
+        """True si la valeur est une chaîne non numérique (annotation dans champ numérique)."""
+        if v is None or (isinstance(v, float) and pd.isna(v)):
+            return False
+        if isinstance(v, (int, float)):
+            return False
+        s = str(v).strip()
+        try:
+            float(s.replace(",", "."))
+            return False
+        except ValueError:
+            return bool(s)  # non vide ET non convertible
+
+    qu = _to_float(raw_qu)
+    pu = _to_float(raw_pu)
+    tot = _to_float(raw_tot)
+
+    # 6. Texte dans colonnes numériques
+    if _is_text_in_num(raw_qu):
+        alerts.append(
+            {
+                "type": "error",
+                "color": "red",
+                "code": code,
+                "message": f"Texte dans la colonne Quantité : '{raw_qu}' — annotation mal placée ?",
+            }
+        )
+    if _is_text_in_num(raw_pu):
+        alerts.append(
+            {
+                "type": "error",
+                "color": "red",
+                "code": code,
+                "message": f"Texte dans la colonne Px U. HT : '{raw_pu}' — annotation mal placée ?",
+            }
+        )
+    if _is_text_in_num(raw_tot):
+        alerts.append(
+            {
+                "type": "error",
+                "color": "red",
+                "code": code,
+                "message": f"Texte dans la colonne Px Tot HT : '{raw_tot}' — annotation mal placée ?",
+            }
+        )
+
+    # 5. Valeurs négatives
+    if qu is not None and qu < 0:
+        alerts.append(
+            {
+                "type": "error",
+                "color": "red",
+                "code": code,
+                "message": f"Quantité négative : {qu}",
+            }
+        )
+    if pu is not None and pu < 0:
+        alerts.append(
+            {
+                "type": "error",
+                "color": "red",
+                "code": code,
+                "message": f"Prix unitaire négatif : {pu} €",
+            }
+        )
+    if tot is not None and tot < 0:
+        alerts.append(
+            {
+                "type": "error",
+                "color": "red",
+                "code": code,
+                "message": f"Prix total négatif : {tot} €",
+            }
+        )
+
+    # 4. Quantité nulle avec prix non nul
+    if qu is not None and qu == 0 and pu is not None and pu != 0:
+        alerts.append(
+            {
+                "type": "error",
+                "color": "red",
+                "code": code,
+                "message": f"Quantité = 0 mais Px U. HT = {pu} € — ligne incohérente",
+            }
+        )
+
+    # 1. Erreur de calcul Qu × Px_U_HT ≠ Px_Tot_HT (tolérance 1%)
+    if qu is not None and pu is not None and tot is not None and qu != 0 and pu != 0:
+        expected = qu * pu
+        if abs(expected) > 0.001:
+            ratio = abs(tot - expected) / abs(expected)
+            if ratio > 0.01:
+                alerts.append(
+                    {
+                        "type": "error",
+                        "color": "red",
+                        "code": code,
+                        "message": (
+                            f"Erreur de calcul : {qu} × {pu} = {expected:.2f} "
+                            f"mais Px Tot = {tot:.2f} (écart {ratio:.1%})"
+                        ),
+                    }
+                )
+
+    # 2. Désignation vide
+    if not desig and code:
+        alerts.append(
+            {
+                "type": "warning",
+                "color": "orange",
+                "code": code,
+                "message": "Désignation vide pour ce poste",
+            }
+        )
+
+    # 3. Prix unitaire absent alors que quantité renseignée
+    if qu and qu != 0 and (pu is None or pu == 0) and (tot is None or tot == 0):
+        alerts.append(
+            {
+                "type": "warning",
+                "color": "orange",
+                "code": code,
+                "message": f"Quantité renseignée ({qu}) mais prix unitaire absent",
+            }
+        )
+
+    # 7. Code inconnu → chercher un code proche (typo probable)
+    if not is_code_matched and code:
+        similar = _similar_codes(code, tco_codes)
+        if similar:
+            suggestions = ", ".join(f"'{s}'" for s in similar)
+            alerts.append(
+                {
+                    "type": "error",
+                    "color": "red",
+                    "code": code,
+                    "message": (
+                        f"Code '{code}' absent du TCO — code(s) proche(s) : {suggestions} ?"
+                    ),
+                }
+            )
+
+    # 8. Désignation très différente de celle du TCO (si ligne matchée)
+    if is_code_matched and desig and tco_desig:
+        tco_d = tco_desig.strip().lower()
+        dpgf_d = desig.lower()
+        # Ratio de mots communs (jaccard sur tokens)
+        tco_words = set(tco_d.split())
+        dpgf_words = set(dpgf_d.split())
+        if tco_words and dpgf_words:
+            union = tco_words | dpgf_words
+            inter = tco_words & dpgf_words
+            jaccard = len(inter) / len(union)
+            # Seulement si les deux désignations sont suffisamment longues pour être significatives
+            if jaccard < 0.35 and len(tco_words) >= 3 and len(dpgf_words) >= 3:
+                alerts.append(
+                    {
+                        "type": "warning",
+                        "color": "orange",
+                        "code": code,
+                        "message": (
+                            f"Désignation très différente du TCO "
+                            f"(similarité {jaccard:.0%}) — vérifier le poste"
+                        ),
+                    }
+                )
+
+    return alerts
+
+
 def _build_section_index(df: pd.DataFrame) -> dict[str, int]:
     """
     PERF-1 : Pré-indexe les section_headers par code pour lookup O(1).
@@ -279,10 +532,33 @@ def merge_company_into_tco(
             if code not in tco_code_index:
                 tco_code_index[code] = idx
 
+    # Set de codes TCO pour le fuzzy matching
+    tco_codes_set = set(tco_code_index.keys())
+
     # Fusion articles + sub_sections du DPGF
     dpgf_data = dpgf_df[dpgf_df["row_type"].isin(["article", "sub_section"])]
     matched_count = 0
     insertions: list[tuple[int, int, dict]] = []  # (target_idx, order, row_data)
+
+    # --- Détection de codes en doublon dans le DPGF ---
+    dpgf_codes_all = [
+        _normalize_code(r["Code"]) for _, r in dpgf_data.iterrows() if _normalize_code(r["Code"])
+    ]
+    seen_codes: set[str] = set()
+    duplicate_codes: set[str] = set()
+    for c in dpgf_codes_all:
+        if c in seen_codes:
+            duplicate_codes.add(c)
+        seen_codes.add(c)
+    for dup in sorted(duplicate_codes):
+        alerts.append(
+            {
+                "type": "error",
+                "color": "red",
+                "code": dup,
+                "message": f"Code '{dup}' en doublon dans le DPGF {company_name} — seule la première occurrence est conservée",
+            }
+        )
 
     for _, dpgf_row in dpgf_data.iterrows():
         raw_code = dpgf_row["Code"]
@@ -359,7 +635,7 @@ def merge_company_into_tco(
                 dpgf_qu = dpgf_row["Qu."]
                 dpgf_u = str(dpgf_row.get("U", "") or "").strip().lower()
 
-                # Check Quantity mismatch (ignoring 0 vs None handling)
+                # Check Quantity mismatch
                 try:
                     tco_qu_val = float(tco_qu) if tco_qu is not None else 0.0
                     dpgf_qu_val = float(dpgf_qu) if dpgf_qu is not None else 0.0
@@ -389,10 +665,25 @@ def merge_company_into_tco(
                         }
                     )
 
+            # --- FULL QC CHECK ---
+            tco_desig = str(merged_df.at[idx, "Désignation"] or "").strip()
+            alerts.extend(
+                _qc_check_dpgf_row(
+                    dpgf_row, code, company_name, tco_desig, tco_codes_set, is_code_matched=True
+                )
+            )
+
             matched_count += 1
         else:
             parent_code = ".".join(code.split(".")[:-1])
             found_insertion = False
+
+            # --- QC CHECK pour ligne non matchée (code inconnu) ---
+            alerts.extend(
+                _qc_check_dpgf_row(
+                    dpgf_row, code, company_name, "", tco_codes_set, is_code_matched=False
+                )
+            )
 
             for idx, row in merged_df.iterrows():
                 if (
