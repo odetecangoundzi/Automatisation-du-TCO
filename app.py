@@ -611,19 +611,33 @@ if st.session_state.step >= 1:
 
     if _active_lot_get("tco_df") is not None:
         # UX-1 : Selecteur TVA — affecte les calculs HT/TVA/TTC du lot
-        tva_labels = list(TVA_OPTIONS.keys())
+        tva_labels = list(TVA_OPTIONS.keys()) + ["Autre (personnalisé)"]
         tva_rate_lot = _active_lot_get("tva_rate", TVA_DEFAULT)
         current_tva_label = next(
             (k for k, v in TVA_OPTIONS.items() if v == tva_rate_lot),
-            tva_labels[-1],
+            "Autre (personnalisé)",
         )
         selected_tva_label = st.selectbox(
             "Taux de TVA applicable",
             options=tva_labels,
             index=tva_labels.index(current_tva_label),
-            help="5,5 % — renovation residentielle | 10 % — renovation | 20 % — neuf/defaut",
+            help="Sélectionnez un taux prédéfini ou choisissez 'Autre' pour entrer une valeur manuelle.",
         )
-        new_tva = TVA_OPTIONS[selected_tva_label]
+        if selected_tva_label == "Autre (personnalisé)":
+            custom_pct = st.number_input(
+                "Taux de TVA personnalisé (%)",
+                min_value=0.0,
+                max_value=100.0,
+                value=float(tva_rate_lot * 100)
+                if current_tva_label == "Autre (personnalisé)"
+                else 20.0,
+                step=0.1,
+                format="%.1f",
+            )
+            new_tva = round(custom_pct / 100.0, 4)
+        else:
+            new_tva = TVA_OPTIONS[selected_tva_label]
+
         if new_tva != tva_rate_lot:
             _active_lot_set("tva_rate", new_tva)
             if _active_lot_get("companies", {}):
