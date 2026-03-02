@@ -57,6 +57,52 @@ def _normalize_code(code: object) -> str:
     return ".".join(p.lstrip("0") or "0" for p in parts)
 
 
+def _detect_malformed_code(raw_code: object) -> tuple[bool, str]:
+    """Détecte un code DPGF mal formé et tente une correction automatique.
+
+    Un code est considéré malformé s'il contient :
+    - Des virgules à la place des points  ("2.1,1,3")
+    - Des espaces intempestifs            ("2. 1.3")
+    - Des caractères non alphanumériques  ("2.1.3-a", "2.1.3/")
+    - Des points doublés ou finaux        ("2..1", "2.1.")
+
+    Returns:
+        (is_malformed, corrected_normalized_code)
+        - is_malformed = True si le code d'origine est malformé
+        - corrected_normalized_code = code corrigé et normalisé, ou "" si non corrigeable
+    """
+    import re as _re
+
+    if raw_code is None:
+        return False, ""
+    s = str(raw_code).strip()
+    if not s or s.lower() in ("nan", "none"):
+        return False, ""
+
+    # Pas de problème sur un code entier/float standard
+    if isinstance(raw_code, float):
+        return False, _normalize_code(raw_code)
+
+    # Tentative de correction : remplacer virgules et espaces par des points
+    corrected = s.replace(",", ".").replace(" ", "")
+
+    # Supprimer les points doublés et finaux
+    corrected = _re.sub(r"\.{2,}", ".", corrected).strip(".")
+
+    # Vérifier la présence de caractères invalides dans le code corrigé
+    # Un code valide est composé uniquement de chiffres et de points
+    has_invalid_chars = bool(_re.search(r"[^\d.]", corrected))
+
+    is_malformed = (s != corrected) or has_invalid_chars
+
+    if has_invalid_chars:
+        # Non corrigeable : on retourne la chaîne brute pour la signaler
+        return True, ""
+
+    normalized = _normalize_code(corrected)
+    return is_malformed, normalized
+
+
 def _build_section_index(df: pd.DataFrame) -> dict[str, int]:
     """
     PERF-1 : Pré-indexe les section_headers par code pour lookup O(1).
@@ -239,7 +285,48 @@ def merge_company_into_tco(
     insertions: list[tuple[int, int, dict]] = []  # (target_idx, order, row_data)
 
     for _, dpgf_row in dpgf_data.iterrows():
-        code = _normalize_code(dpgf_row["Code"])
+        raw_code = dpgf_row["Code"]
+        code = _normalize_code(raw_code)
+
+        # --- Détection code malformé ---
+        is_malformed, corrected_code = _detect_malformed_code(raw_code)
+        if is_malformed:
+            raw_str = str(raw_code).strip()
+            if corrected_code:
+                # Correction possible → utiliser le code corrigé, signaler l'erreur
+                log.warning(
+                    "Code DPGF malformé corrigé : %r → %r (%s)",
+                    raw_str,
+                    corrected_code,
+                    company_name,
+                )
+                code = corrected_code
+            else:
+                # Non corrigeable → signaler et forcer l'insertion comme extra
+                log.warning(
+                    "Code DPGF non corrigeable : %r (%s) — insertion en extra",
+                    raw_str,
+                    company_name,
+                )
+                code = ""  # force le bloc "code non trouvé" plus bas
+
+            alerts.append(
+                {
+                    "type": "error",
+                    "color": "red",
+                    "code": corrected_code or "",
+                    "message": (
+                        f"Code incorrect dans le DPGF {company_name} : "
+                        f"'{raw_str}'"
+                        + (
+                            f" → corrigé en '{corrected_code}'"
+                            if corrected_code
+                            else " (non corrigeable)"
+                        )
+                    ),
+                }
+            )
+
         if not code:
             px_tot = dpgf_row.get("Px_Tot_HT")
             try:
