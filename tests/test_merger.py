@@ -546,22 +546,22 @@ class TestUnclassifiedItems:
             ]
         )
         merged, alerts = merge_company_into_tco(minimal_tco_df, dpgf_empty, "ACME")
-        
+
         # Check that section SANS_CODE was created
         assert "SANS_CODE" in merged["Code"].values
-        
+
         # Check that the item was inserted
         item_row = merged[(merged["Code"] == "") & (merged["Désignation"] == "Prestation sans code")]
         assert not item_row.empty
         assert item_row.iloc[0]["ACME_Px_Tot_HT"] == Decimal("500")
-        
+
         # Check the section SANS_CODE recap total
         recap_sc = merged[(merged["Code"] == "SANS_CODE") & (merged["row_type"] == "recap")]
         assert not recap_sc.empty
-        
+
         # Because we only compute totals during compute_section_totals, the recap won't have the sum automatically until called
         # Let's call compute_section_totals
         compute_section_totals(merged, "ACME_Px_Tot_HT")
-        
+
         recap_sc_computed = merged[(merged["Code"] == "SANS_CODE") & (merged["row_type"] == "recap")]
         assert recap_sc_computed.iloc[0]["ACME_Px_Tot_HT"] == Decimal("500")

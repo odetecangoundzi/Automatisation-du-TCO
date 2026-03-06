@@ -239,7 +239,7 @@ def parse_dpgf(filepath: str) -> tuple[pd.DataFrame, list[dict]]:
     for row_tuple in df_data.itertuples(index=True, name=None):
         idx_in_df = row_tuple[0]
         xl_row = row_tuple[1:]
-        
+
         row_idx = idx_in_df + header_row_idx + 2  # conversion en 1-indexed Excel row
 
         if len(xl_row) <= max(idx_code, idx_desig, idx_qu, idx_pu, idx_tot):
@@ -384,7 +384,7 @@ def parse_dpgf(filepath: str) -> tuple[pd.DataFrame, list[dict]]:
             # Concaténer tout le texte de la ligne pour ne pas dépendre de idx_desig
             row_str = " ".join(str(cell).strip().lower() for cell in row_tuple if pd.notna(cell))
             row_clean = row_str.replace("h.t.", "ht").replace("h.t", "ht")
-            
+
             # Mots-clés caractérisant le total général
             if (
                 ("total" in row_clean and "ht" in row_clean) or
@@ -407,7 +407,7 @@ def parse_dpgf(filepath: str) -> tuple[pd.DataFrame, list[dict]]:
                                     val_str = val_str.replace(".", "").replace(",", ".")
                                 else:
                                     val_str = val_str.replace(",", "")
-                                    
+
                             try:
                                 extracted_ht = float(val_str)
                                 if extracted_ht > 0:

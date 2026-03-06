@@ -188,8 +188,8 @@ def _match_by_desig(
         return None, None, 0.0
 
     best_score = 0.0
-    best_code: "str | None" = None
-    best_idx: "int | None" = None
+    best_code: str | None = None
+    best_idx: int | None = None
 
     for tco_d, (code, idx) in tco_desig_index.items():
         tco_words = set(tco_d.split())
@@ -527,8 +527,8 @@ def _apply_total_lines(
     tva = (montant_ht * d_tva_rate).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
     montant_ttc = (montant_ht + tva).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
     term_map = {
-        "montant ht": montant_ht, 
-        "tva": tva, 
+        "montant ht": montant_ht,
+        "tva": tva,
         "ttc": montant_ttc,
         "option": montant_options if montant_options is not None else Decimal("0.0")
     }
@@ -538,7 +538,7 @@ def _apply_total_lines(
             continue
         desig = str(row.get("Désignation", "")).strip().lower()
         col_com = total_col.replace("Px_Tot_HT", "Commentaire")
-        
+
         # Priorité à la détection des options
         if "option" in desig or "variante" in desig:
             if montant_options is not None:
@@ -612,16 +612,16 @@ def merge_company_into_tco(
     # PERF-1 : index TCO codes → O(1) lookup
     tco_code_index: dict[str, int] = {}
     recap_by_parent: dict[str, int] = {}
-    
+
     # Itération optimisée (100x plus rapide qu'iterrows simple)
     for idx, row_type, raw_code, parent_c in zip(
-        merged_df.index, merged_df["row_type"], merged_df["Code"], merged_df["parent_code"]
+        merged_df.index, merged_df["row_type"], merged_df["Code"], merged_df["parent_code"], strict=False
     ):
         code = _normalize_code(raw_code)
         if code and row_type not in ("empty", "recap", "recap_summary"):
             if code not in tco_code_index:
                 tco_code_index[code] = idx
-                
+
         if row_type == "recap":
             pc = _normalize_code(parent_c)
             if pc not in recap_by_parent:
@@ -1021,7 +1021,7 @@ def merge_company_into_tco(
             if a.get("type") == "info_ht":
                 extracted_ht = a.get("value")
                 break
-                
+
         if extracted_ht is not None:
             tco_ht = 0.0
             for idx in merged_df.index[merged_df["row_type"] == "total_line"]:
@@ -1032,12 +1032,12 @@ def merge_company_into_tco(
                     except (ValueError, TypeError):
                         tco_ht = 0.0
                     break
-                    
+
             ecart = abs(tco_ht - extracted_ht)
             if ecart > 1.0:
                 msg_alert = f"Le Montant HT déclaré ({extracted_ht:,.2f} €) diffère du calcul TCO ({tco_ht:,.2f} €) — Écart : {ecart:,.2f} €"
                 log.warning("Écart HT pour %s: déclaré=%.2f, calculé=%.2f (écart %.2f)", company_name, extracted_ht, tco_ht, ecart)
-                
+
                 alerts.insert(0, {
                     "type": "warning",
                     "color": "orange",
@@ -1045,7 +1045,7 @@ def merge_company_into_tco(
                     "code": "",
                     "message": msg_alert
                 })
-                
+
                 for idx in merged_df.index[merged_df["row_type"] == "total_line"]:
                     if "montant ht" in str(merged_df.at[idx, "Désignation"]).lower():
                         cur = str(merged_df.at[idx, col_com] or "").strip()
@@ -1129,7 +1129,7 @@ def compute_section_totals(
     # PERF-7 : Précalcul des sommes par préfixe parent en un seul passage O(N*depth)
     # Évite O(S×N) itérations (une par section_header) de l'ancien _get_children_total.
     parent_sums: dict[str, Decimal] = defaultdict(Decimal)
-    for idx, row in df.iterrows():
+    for _idx, row in df.iterrows():
         if row["row_type"] not in ("article", "sub_section") or row.get("skip_sum"):
             continue
         val = row.get(total_col)
@@ -1141,7 +1141,7 @@ def compute_section_totals(
                 continue
         except (ValueError, TypeError, InvalidOperation, ArithmeticError):  # noqa: S110
             continue
-        
+
         # Propager via parent_code explicite (prioritaire pour sections dynamiques)
         p_code = _normalize_code(row.get("parent_code"))
         if p_code:
@@ -1201,7 +1201,7 @@ def compute_section_totals(
     # ON EXCLUT les options du Montant HT principal.
     montant_ht = Decimal("0.0")
     montant_options = Decimal("0.0")
-    
+
     for _idx, row in df.iterrows():
         if row["row_type"] == "recap_summary":
             val = row.get(total_col)

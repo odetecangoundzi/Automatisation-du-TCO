@@ -14,14 +14,14 @@ from __future__ import annotations
 import io
 import re
 from copy import copy as _copy
-import pandas as pd
-import openpyxl
-from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
-from openpyxl.utils import get_column_letter
 from decimal import Decimal
 
-from logger import get_logger
+import openpyxl
+import pandas as pd
+from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+from openpyxl.utils import get_column_letter
 
+from logger import get_logger
 
 log = get_logger(__name__)
 
@@ -54,7 +54,7 @@ def _clean_val(v):
     if isinstance(v, str):
         s = v.strip()
         return s if s else None
-    
+
     try:
         f = float(v)
         return None if f != f else f
@@ -447,7 +447,7 @@ def export_tco(
     _lot_num = _lot_match.group(1) if _lot_match else ""
     _tab_color = _get_lot_tab_color(_lot_num) if _lot_num else "2F5496"
     ws.sheet_properties.tabColor = _tab_color
-    
+
     # Affichage du récapitulatif AU-DESSUS du détail (plus intuitif pour les TCO)
     ws.sheet_properties.outlinePr.summaryBelow = False
     log.debug("Lot détecté : '%s' → tab color #%s", _lot_num or "?", _tab_color)
@@ -466,28 +466,28 @@ def export_tco(
     if moa or moe:
         ws.cell(row=current_row, column=1, value="Maître d'Ouvrage :").font = Font(bold=True)
         ws.cell(row=current_row, column=2, value=moa)
-        
+
         # --- Légende Visuelle (Premium) ---
         _l_col = 8 # Colonne H
         ws.cell(row=current_row, column=_l_col, value="Légende Analyse :").font = Font(bold=True, italic=True, size=9)
-        
+
         _best = ws.cell(row=current_row, column=_l_col + 1, value="● Meilleur Prix")
         _best.font = Font(color="38761D", bold=True, size=9)
-        
+
         current_row += 1
         ws.cell(row=current_row, column=1, value="Maître d'Œuvre :").font = Font(bold=True)
         ws.cell(row=current_row, column=2, value=moe)
-        
+
         _nc = ws.cell(row=current_row, column=_l_col + 1, value="● NC : Non Chiffré")
         _nc.font = Font(color="999999", italic=True, size=8)
-        
+
         current_row += 1
         ws.cell(row=current_row, column=1, value="Devise :").font = Font(bold=True)
         ws.cell(row=current_row, column=2, value=devise)
-        
+
         _hint = ws.cell(row=current_row, column=_l_col + 1, value="💡 Astuce : Utilisez les boutons [1] [2] à gauche pour plier les détails")
         _hint.font = Font(color="2F5496", size=8, italic=True)
-        
+
         current_row += 2  # Add a blank line
 
     header_row_1 = current_row
@@ -974,20 +974,20 @@ def export_tco(
         for comp in companies:
             # Bordure droite plus épaisse à la fin de chaque bloc entreprise (+4 = Commentaire)
             ws.cell(row=excel_row, column=_c_off + 4).border = THICK_RIGHT_BORDER
-            
+
             # Highlight Moins Disant
             if min_pu is not None:
                 try:
                     raw_val = row.get(f"{comp}_Px_U_HT")
                     curr_pu = float(raw_val or 0)
-                    
+
                     if abs(curr_pu - min_pu) < 0.001:
                         # On met le prix unitaire en gras / couleur pour le distinguer
                         best_font = _copy(cell.font)
                         best_font.bold = True
                         best_font.color = "38761D" # Vert foncé pro
                         ws.cell(row=excel_row, column=_c_off + 2).font = best_font
-                    
+
                     # --- NON CHIFFRÉ (NC) ---
                     # On n'affiche NC que si la valeur est VRAIMENT absente (None ou NaN)
                     # et NON SI elle vaut 0 (qui peut être "Compris").
@@ -998,7 +998,7 @@ def export_tco(
                         nc_cell.value = "NC"
                         nc_cell.font = Font(name="Tahoma", size=7, color="999999", italic=True)
                         nc_cell.alignment = Alignment(horizontal="center", vertical="center")
-                        
+
                         # Colonne Prix Total : on efface la formule Qu*PU qui renverrait #VALEUR!
                         ws.cell(row=excel_row, column=_c_off + 3, value=None)
                 except (ValueError, TypeError):
@@ -1135,7 +1135,7 @@ def export_tco(
             ws.row_dimensions[excel_row].height = 22.0
         else:
             _n_lines_desig = max(1, -(-len(desig) // 55)) if desig else 1
-            
+
             # Examiner la longueur des commentaires pour adapter la hauteur
             _max_com_len = 0
             _c_off = 7
@@ -1144,11 +1144,11 @@ def export_tco(
                 if _com_val:
                     _max_com_len = max(_max_com_len, len(str(_com_val)))
                 _c_off += 5
-                
+
             # Une ligne de commentaire fait environ 30 caractères utiles pour col.width=30
             _n_lines_com = max(1, -(-_max_com_len // 30)) if _max_com_len > 0 else 1
             _n_lines = max(_n_lines_desig, _n_lines_com)
-            
+
             # Plafond augmenté à 150 pt pour bien lire les gros paquets d'erreurs
             ws.row_dimensions[excel_row].height = max(28.5, min(_n_lines * 16.0, 150.0))
 
