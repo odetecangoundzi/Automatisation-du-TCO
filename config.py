@@ -7,6 +7,7 @@ Les valeurs peuvent être surchargées via un fichier .env (voir .env.example).
 """
 
 import os
+import sys
 
 from dotenv import load_dotenv
 
@@ -16,7 +17,15 @@ load_dotenv()  # Charge les variables depuis .env si le fichier existe
 # Répertoires
 # ---------------------------------------------------------------------------
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+# En mode PyInstaller (frozen), les fichiers bundlés sont dans sys._MEIPASS
+# mais les données utilisateur (uploads, projets, logs) doivent être stockées
+# à côté du fichier EXE, pas dans le répertoire temporaire _MEIPASS.
+if getattr(sys, "frozen", False):
+    # Répertoire de l'EXE — persistant entre les lancements
+    BASE_DIR = os.path.dirname(sys.executable)
+else:
+    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
 UPLOAD_DIR = os.path.join(BASE_DIR, "uploads")
 OUTPUT_DIR = os.path.join(BASE_DIR, "outputs")
 LOG_DIR = os.path.join(BASE_DIR, "logs")

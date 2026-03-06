@@ -142,8 +142,8 @@ def _check_total_coherence(
                         actual,
                     )
                     return {
-                        "type": "error",
-                        "color": "red",
+                        "type": "warning",
+                        "color": "orange",
                         "row": row_idx,
                         "code": code,
                         "message": (
@@ -212,8 +212,16 @@ def parse_dpgf(filepath: str) -> tuple[pd.DataFrame, list[dict]]:
     alerts = []
     rows = []
     current_section_code = ""
+    is_option_zone = False
 
-    # Mapping dynamique des colonnes — mots-clés étendus pour DPGFs hétérogènes
+    # Mots-clés déclencheurs du mode "Option / Variante"
+    # Vérifié sur la DÉSIGNATION (singulier ET pluriel) ou sur le CODE (pattern OPT*).
+    RE_OPTION_TRIGGER = re.compile(
+        r"\b(options?|variantes?|variante\s+libre|variante\s+imposee)\b", re.I
+    )
+    # Codes de type OPT, OPT1, OPT2 (ROLLIN) : sections option identifiées par le code
+    RE_OPT_CODE = re.compile(r"^OPT\d*$", re.I)
+
     idx_code = find_column_index(df_data, ["code", "n°", "n°.", "n° de prix", "num", "indice"], 0)
     idx_desig = find_column_index(df_data, ["désignation", "designation", "libellé", "libelle"], 1)
     idx_qu = find_column_index(df_data, ["qu.", "quantité", "qte", "qté", "qt", "quantite", "q"], 2)
@@ -228,19 +236,22 @@ def parse_dpgf(filepath: str) -> tuple[pd.DataFrame, list[dict]]:
     )
     idx_entete = find_column_index(df_data, ["entete", "entête"])  # COL_NOT_FOUND (-1) si absent
 
-    for idx_in_df, xl_row in df_data.iterrows():
+    for row_tuple in df_data.itertuples(index=True, name=None):
+        idx_in_df = row_tuple[0]
+        xl_row = row_tuple[1:]
+        
         row_idx = idx_in_df + header_row_idx + 2  # conversion en 1-indexed Excel row
 
         if len(xl_row) <= max(idx_code, idx_desig, idx_qu, idx_pu, idx_tot):
             continue
 
-        code_raw = xl_row.iloc[idx_code]
-        desig_raw = xl_row.iloc[idx_desig]
-        cc_raw = xl_row.iloc[idx_qu]
-        u = xl_row.iloc[idx_u]
-        px_u_raw = xl_row.iloc[idx_pu]
-        px_tot_raw = xl_row.iloc[idx_tot]
-        entete = xl_row.iloc[idx_entete] if (idx_entete >= 0 and len(xl_row) > idx_entete) else None
+        code_raw = xl_row[idx_code]
+        desig_raw = xl_row[idx_desig]
+        cc_raw = xl_row[idx_qu]
+        u = xl_row[idx_u]
+        px_u_raw = xl_row[idx_pu]
+        px_tot_raw = xl_row[idx_tot]
+        entete = xl_row[idx_entete] if (idx_entete >= 0 and len(xl_row) > idx_entete) else None
 
         code_str = str(code_raw).strip() if pd.notna(code_raw) else ""
         desig_str = str(desig_raw).strip() if pd.notna(desig_raw) else ""
@@ -251,6 +262,20 @@ def parse_dpgf(filepath: str) -> tuple[pd.DataFrame, list[dict]]:
         has_price = _looks_numeric(cc_raw) and _looks_numeric(px_u_raw)
 
         row_type = classify_row(code_str, desig_str, ent_str, has_price=has_price)
+
+        # Détection de basculement en mode Option
+        # Deux déclencheurs possibles sur les lignes de type section/titre/autre :
+        #   A) Désignation contient "option(s)", "variante(s)", etc.
+        #   B) Code est de la forme OPT, OPT1, OPT2 (ex : ROLLIN TP)
+        if row_type in ("section_header", "sub_section", "other"):
+            triggered_by_desig = bool(RE_OPTION_TRIGGER.search(desig_str))
+            triggered_by_code = bool(RE_OPT_CODE.match(code_str))
+            if (triggered_by_desig or triggered_by_code) and not is_option_zone:
+                log.info(
+                    "Ligne %d : zone OPTION/VARIANTE (code='%s' desig='%s')",
+                    row_idx, code_str, desig_str,
+                )
+                is_option_zone = True
 
         if row_type == "section_header":
             current_section_code = code_str
@@ -341,10 +366,65 @@ def parse_dpgf(filepath: str) -> tuple[pd.DataFrame, list[dict]]:
                 "row_type": row_type,
                 "original_row": row_idx,
                 "parent_code": parent_code,
+                "is_option": is_option_zone,
             }
         )
 
     dpgf_df = pd.DataFrame(rows)
+
+    # ------------------------------------------------------------------
+    # ------------------------------------------------------------------
+    # Extraction du Montant HT déclaré de l'entreprise
+    # En scannant df_data à l'envers pour attraper le total final
+    # même si la désignation est dans une autre colonne.
+    # ------------------------------------------------------------------
+    try:
+        raw_rows = list(df_data.itertuples(index=False, name=None))
+        for row_tuple in reversed(raw_rows):
+            # Concaténer tout le texte de la ligne pour ne pas dépendre de idx_desig
+            row_str = " ".join(str(cell).strip().lower() for cell in row_tuple if pd.notna(cell))
+            row_clean = row_str.replace("h.t.", "ht").replace("h.t", "ht")
+            
+            # Mots-clés caractérisant le total général
+            if (
+                ("total" in row_clean and "ht" in row_clean) or
+                "montant ht" in row_clean or
+                "total général" in row_clean or
+                "total general" in row_clean or
+                "total dpgf" in row_clean
+            ):
+                # Exclure les résumés ou sous-totaux de sections
+                if not any(kw in row_clean for kw in ["section ", "lot ", "chapitre", "titre ", "sous-total"]):
+                    if len(row_tuple) > idx_tot and idx_tot >= 0:
+                        raw_val = row_tuple[idx_tot]
+                        if pd.notna(raw_val) and str(raw_val).strip() != "":
+                            val_str = str(raw_val).replace("€", "").replace(" ", "").replace("\u202f", "")
+                            # Nettoyage des milliers / décimales
+                            if "," in val_str and "." not in val_str:
+                                val_str = val_str.replace(",", ".")
+                            elif "," in val_str and "." in val_str:
+                                if val_str.rfind(",") > val_str.rfind("."):
+                                    val_str = val_str.replace(".", "").replace(",", ".")
+                                else:
+                                    val_str = val_str.replace(",", "")
+                                    
+                            try:
+                                extracted_ht = float(val_str)
+                                if extracted_ht > 0:
+                                    alerts.append({
+                                        "type": "info_ht",
+                                        "color": "blue",
+                                        "row": 0,
+                                        "code": "",
+                                        "message": f"Montant HT déclaré extrait : {extracted_ht}",
+                                        "value": extracted_ht
+                                    })
+                                    log.info("Montant HT déclaré extrait pour vérification: %.2f", extracted_ht)
+                                    break
+                            except ValueError:
+                                pass
+    except Exception as e:
+        log.debug(f"Erreur silencieuse lors de l'extraction de l'HT: {e}")
 
     # ------------------------------------------------------------------
     # Point 5 : Détection et gestion des codes dupliqués dans le DPGF

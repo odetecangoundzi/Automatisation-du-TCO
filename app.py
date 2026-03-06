@@ -274,7 +274,8 @@ if st.session_state.get("active_project") is not None:
     with st.sidebar:
         # Logo
         if os.path.exists("odetec_logo.png"):
-            st.image("odetec_logo.png", use_container_width=True)
+            with open("odetec_logo.png", "rb") as f:
+                st.image(f.read(), use_container_width=True)
 
         # Nom du projet — bloc en haut de la sidebar
         curr_name = (st.session_state.get("active_project") or {}).get("project_name", "Sans titre")
@@ -493,7 +494,8 @@ if st.session_state.step == 0:
         col_logo_left, col_logo_mid, col_logo_right = st.columns([1, 2, 1])
         with col_logo_mid:
             if os.path.exists("odetec_logo.png"):
-                st.image("odetec_logo.png", use_container_width=True)
+                with open("odetec_logo.png", "rb") as f:
+                    st.image(f.read(), use_container_width=True)
             st.markdown(f"<h1 class='main-title'>{APP_TITLE}</h1>", unsafe_allow_html=True)
             st.markdown(
                 "<p class='subtitle'>Solution intelligente pour la consolidation des DPGF et le remplissage du TCO.</p>",
@@ -829,14 +831,39 @@ if st.session_state.step >= 2:
                                     )
                                     st.error(f"❌ {company_name} : {msg}")
                                 else:
-                                    companies_lot[company_name] = {
-                                        "dpgf_df": dpgf_df,
-                                        "parse_alerts": parse_alerts,
-                                        "filename": dpgf_file.name,
-                                        "n_articles": int((dpgf_df["row_type"] == "article").sum()),
-                                    }
-                                    added_companies.append(company_name)
-                                    success_count += 1
+                                    # Vérification : au moins un article doit avoir un code valide.
+                                    # Si tous les codes sont vides, le fichier n'est probablement
+                                    # pas un DPGF entreprise (mauvais document importé).
+                                    art_mask = dpgf_df["row_type"].isin(["article", "sub_section"])
+                                    has_any_code = (
+                                        dpgf_df.loc[art_mask, "Code"]
+                                        .astype(str)
+                                        .str.strip()
+                                        .ne("")
+                                        .any()
+                                    ) if art_mask.any() else False
+
+                                    if not has_any_code:
+                                        st.error(
+                                            f"❌ **{company_name}** : Document incorrect — "
+                                            "aucun code article n'a été trouvé dans ce fichier. "
+                                            "Vérifiez que vous importez bien un DPGF entreprise "
+                                            "(colonne « Code » obligatoire)."
+                                        )
+                                        log.warning(
+                                            "DPGF %s rejeté : aucun code article trouvé — "
+                                            "document probablement invalide.",
+                                            company_name,
+                                        )
+                                    else:
+                                        companies_lot[company_name] = {
+                                            "dpgf_df": dpgf_df,
+                                            "parse_alerts": parse_alerts,
+                                            "filename": dpgf_file.name,
+                                            "n_articles": int((dpgf_df["row_type"] == "article").sum()),
+                                        }
+                                        added_companies.append(company_name)
+                                        success_count += 1
                             except Exception as e:
                                 log.error("Erreur fusion %s", company_name, exc_info=True)
                                 st.error(f"❌ Erreur sur {company_name}: {e}")
@@ -907,6 +934,10 @@ if st.session_state.step >= 3:
     all_alerts = _active_lot_get("all_alerts", [])
     tco_meta = _active_lot_get("tco_meta") or {}
     companies_s3 = _active_lot_get("companies", {})
+
+    if merged is None or merged.empty:
+        st.warning("⚠️ Aucune donnée fusionnée disponible. Revenez à l'étape 2 et importez au moins un DPGF.")
+        st.stop()
 
     # Stats
     art_rows = merged[merged["row_type"] == "article"]

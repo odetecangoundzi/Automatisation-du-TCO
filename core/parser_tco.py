@@ -147,6 +147,25 @@ def parse_tco(filepath: str) -> tuple[pd.DataFrame, dict]:
         has_price_tco = qu > Decimal("0.0") and px_u > Decimal("0.0")
         row_type = classify_row(code_str, desig_str, ent_str, has_price=has_price_tco)
 
+        # Correction : les codes courts (≤2 segments, ex "02.2") restent section_header
+        # même s'ils portent un prix forfaitaire direct (Qu.=1, Px_U_HT=X).
+        # Sans ce correctif, classify_row les retourne "article" via has_price,
+        # ce qui crée un doublon visuel (article + recap affichent le même montant).
+        if row_type == "article" and code_str:
+            _segs = [p for p in code_str.split(".") if p.strip()]
+            if len(_segs) <= 2:
+                row_type = "section_header"
+
+        # Lignes non classifiables (titres de document, textes libres) → ignorées
+        # Exception : si la désignation contient des mots-clés financiers (montant, tva, ttc)
+        # la ligne est re-classifiée en total_line pour ne pas la supprimer.
+        if row_type == "other":
+            _d = desig_str.lower()
+            if "montant" in _d or "tva" in _d or "ttc" in _d:
+                row_type = "total_line"
+            else:
+                continue
+
         if row_type == "section_header":
             current_section_code = code_str
 

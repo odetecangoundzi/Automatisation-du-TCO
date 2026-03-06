@@ -183,7 +183,7 @@ class TestTotalCoherence:
         )
         df, alerts = parse_dpgf(path)
 
-        error_alerts = [a for a in alerts if a["type"] == "error" and a["color"] == "red"]
+        error_alerts = [a for a in alerts if a["type"] == "warning" and a["color"] == "orange"]
         assert len(error_alerts) >= 1
         assert "Total incohérent" in error_alerts[0]["message"]
         assert "1.1" == error_alerts[0]["code"]

@@ -10,17 +10,49 @@ __pycache__/
 # Streamlit
 .streamlit/
 
-# Temporary files
-*.xlsx
-*.txt
-*.json
+# Logs
 *.log
-!metadata.json
-!project_info.json
+logs/
 
-# Local project files
+# Donnees utilisateur runtime
+uploads/
+outputs/
 projects/
 backup/
+
+# Fichiers temporaires de debug / analyse
+temp_*.py
+*.txt
+test_outputs/
+tools/
+
+# Fichiers de donnees reelles (DPGF / TCO clients) — ne pas versionner
+*.xlsx
+*.xlsm
+*.xlsb
+*.xls
+Autres_Formats/
+COMP/
+pb/
+entreprise/
+
+# Dossiers projets clients
+Passerelles*/
+"Passerelles de Bergerac/"
+
+# Documents non pertinents pour le code
+Conception.pdf
+PROMPT_TCO_CHATGPT.*
+Audit_Streamlit_TCO.*
+Thumbs.db
+
+# PyInstaller build artifacts (trop lourds pour git)
+build/
+dist/
+*.spec.bak
+
+# Claude Code memory (local a chaque developpeur)
+.claude/
 
 # IDE files
 .vscode/
@@ -28,3 +60,10 @@ backup/
 
 # Secret files
 .env
+
+# OS
+.DS_Store
+
+# Exceptions : garder ces fichiers meme s'ils matchent les regles ci-dessus
+!requirements.txt
+!Template_DPGF/

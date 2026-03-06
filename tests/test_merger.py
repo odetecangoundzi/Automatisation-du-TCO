@@ -508,3 +508,60 @@ class TestMergeAllCompanies:
         _, all_alerts = merge_all_companies(minimal_tco_df, company_data)
         tagged = [a for a in all_alerts if a.get("company") == "TAGGED_CO"]
         assert len(tagged) >= 1
+
+# ---------------------------------------------------------------------------
+# Tests Unclassified Items (Safety Net)
+# ---------------------------------------------------------------------------
+
+class TestUnclassifiedItems:
+    def test_empty_code_goes_to_sans_code(self, minimal_tco_df):
+        dpgf_empty = pd.DataFrame(
+            [
+                {
+                    "Code": "1.1",
+                    "Désignation": "Article existant",
+                    "Qu.": Decimal("1"),
+                    "U": "u",
+                    "Px_U_HT": Decimal("10"),
+                    "Px_Tot_HT": Decimal("10"),
+                    "Commentaire": "",
+                    "Entete": "Ouv_01_Art",
+                    "row_type": "article",
+                    "original_row": 2,
+                    "parent_code": "",
+                },
+                {
+                    "Code": "",
+                    "Désignation": "Prestation sans code",
+                    "Qu.": Decimal("1"),
+                    "U": "ft",
+                    "Px_U_HT": Decimal("500"),
+                    "Px_Tot_HT": Decimal("500"),
+                    "Commentaire": "",
+                    "Entete": "Ouv_01_Art",
+                    "row_type": "article",
+                    "original_row": 3,
+                    "parent_code": "",
+                }
+            ]
+        )
+        merged, alerts = merge_company_into_tco(minimal_tco_df, dpgf_empty, "ACME")
+        
+        # Check that section SANS_CODE was created
+        assert "SANS_CODE" in merged["Code"].values
+        
+        # Check that the item was inserted
+        item_row = merged[(merged["Code"] == "") & (merged["Désignation"] == "Prestation sans code")]
+        assert not item_row.empty
+        assert item_row.iloc[0]["ACME_Px_Tot_HT"] == Decimal("500")
+        
+        # Check the section SANS_CODE recap total
+        recap_sc = merged[(merged["Code"] == "SANS_CODE") & (merged["row_type"] == "recap")]
+        assert not recap_sc.empty
+        
+        # Because we only compute totals during compute_section_totals, the recap won't have the sum automatically until called
+        # Let's call compute_section_totals
+        compute_section_totals(merged, "ACME_Px_Tot_HT")
+        
+        recap_sc_computed = merged[(merged["Code"] == "SANS_CODE") & (merged["row_type"] == "recap")]
+        assert recap_sc_computed.iloc[0]["ACME_Px_Tot_HT"] == Decimal("500")

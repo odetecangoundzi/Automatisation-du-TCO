@@ -35,9 +35,9 @@ def valid_tco(tmp_path):
     wb = openpyxl.Workbook()
     ws = wb.active
     ws.append(["PROJET TEST"])
-    ws.append(["Code", "Désignation", "Qu.", "U", "Px U", "Px Tot"])
-    ws.append(["01", "Section 1", "", "", "", ""])
-    ws.append(["01.1", "Article 1", "10", "u", "10", "100"])
+    ws.append(["Code", "Désignation", "Qu.", "U", "Px U", "Px Tot", "Entete"])
+    ws.append(["01", "Section 1", "", "", "", "", "Bd_01_Bord"])
+    ws.append(["01.1.1", "Article 1", "10", "u", "10", "100", "Ouv_01_Art"])
     wb.save(fpath)
     return str(fpath)
 
@@ -48,7 +48,7 @@ def valid_dpgf(tmp_path):
     wb = openpyxl.Workbook()
     ws = wb.active
     ws.append(["Code", "Désignation", "Qu.", "U", "Px U", "Px Tot"])
-    ws.append(["01.1", "Article 1 - DPGF", "10", "u", "15", "150"])
+    ws.append(["01.1.1", "Article 1 - DPGF", "10", "u", "15", "150"])
     wb.save(fpath)
     return str(fpath)
 
@@ -77,7 +77,7 @@ def test_parse_tco_valid(valid_tco):
     df, meta = parse_tco(valid_tco)
     assert not df.empty
     assert len(df) == 2
-    assert "01.1" in df["Code"].values
+    assert "01.1.1" in df["Code"].values
 
 
 # -------------
@@ -104,7 +104,7 @@ def test_parse_dpgf_valid(valid_dpgf):
     df, alerts = parse_dpgf(valid_dpgf)
     assert not df.empty
     assert len(df) == 1
-    assert "01.1" in df["Code"].values
+    assert "01.1.1" in df["Code"].values
 
 
 # -------------
@@ -133,8 +133,8 @@ def test_merge_valid(valid_tco, valid_dpgf):
 
     merged_df, alerts = merge_company_into_tco(tco_df, dpgf_df, "TEST_COMP")
 
-    # L'article 01.1 doit avoir reçu le prix 150
-    article_row = merged_df[merged_df["Code"] == "01.1"].iloc[0]
+    # L'article 01.1.1 doit avoir reçu le prix 150
+    article_row = merged_df[merged_df["Code"] == "01.1.1"].iloc[0]
     assert article_row["TEST_COMP_Px_Tot_HT"] == 150
     assert article_row["TEST_COMP_Px_U_HT"] == 15
 
