@@ -611,7 +611,9 @@ if st.session_state.step >= 1:
     # Détection du retrait via le X du widget : si le fichier est supprimé du widget
     # mais que tco_df est encore en session, on remet à zéro pour que le bouton
     # "Mode comparatif" réapparaisse.
-    if not tco_file and _active_lot_get("tco_df") is not None:
+    # Garde step == 1 : ne pas effacer les données d'un projet chargé quand l'utilisateur
+    # est déjà à l'étape 2 ou 3 (le widget est toujours vide au rechargement de session).
+    if not tco_file and _active_lot_get("tco_df") is not None and st.session_state.step == 1:
         _active_lot_set("tco_df", None)
         _active_lot_set("tco_meta", None)
         _active_lot_set("merged_df", None)
