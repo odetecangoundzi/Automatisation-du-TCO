@@ -900,7 +900,7 @@ def export_tco(
                     value=_clean_val(row.get(f"{comp}_Px_Tot_HT")),
                 )
 
-            if row_type != "section_header":
+            if row_type not in ("section_header", "total_line", "recap", "recap_summary"):
                 ws.cell(row=excel_row, column=col_offset + 4, value=row.get(f"{comp}_Commentaire"))
             col_offset += 5
 
