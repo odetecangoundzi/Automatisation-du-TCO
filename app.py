@@ -836,12 +836,16 @@ if st.session_state.step >= 2:
                                     # pas un DPGF entreprise (mauvais document importé).
                                     art_mask = dpgf_df["row_type"].isin(["article", "sub_section"])
                                     has_any_code = (
-                                        dpgf_df.loc[art_mask, "Code"]
-                                        .astype(str)
-                                        .str.strip()
-                                        .ne("")
-                                        .any()
-                                    ) if art_mask.any() else False
+                                        (
+                                            dpgf_df.loc[art_mask, "Code"]
+                                            .astype(str)
+                                            .str.strip()
+                                            .ne("")
+                                            .any()
+                                        )
+                                        if art_mask.any()
+                                        else False
+                                    )
 
                                     if not has_any_code:
                                         st.error(
@@ -860,7 +864,9 @@ if st.session_state.step >= 2:
                                             "dpgf_df": dpgf_df,
                                             "parse_alerts": parse_alerts,
                                             "filename": dpgf_file.name,
-                                            "n_articles": int((dpgf_df["row_type"] == "article").sum()),
+                                            "n_articles": int(
+                                                (dpgf_df["row_type"] == "article").sum()
+                                            ),
                                         }
                                         added_companies.append(company_name)
                                         success_count += 1
@@ -936,7 +942,9 @@ if st.session_state.step >= 3:
     companies_s3 = _active_lot_get("companies", {})
 
     if merged is None or merged.empty:
-        st.warning("⚠️ Aucune donnée fusionnée disponible. Revenez à l'étape 2 et importez au moins un DPGF.")
+        st.warning(
+            "⚠️ Aucune donnée fusionnée disponible. Revenez à l'étape 2 et importez au moins un DPGF."
+        )
         st.stop()
 
     # Stats

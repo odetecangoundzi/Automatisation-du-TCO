@@ -509,9 +509,11 @@ class TestMergeAllCompanies:
         tagged = [a for a in all_alerts if a.get("company") == "TAGGED_CO"]
         assert len(tagged) >= 1
 
+
 # ---------------------------------------------------------------------------
 # Tests Unclassified Items (Safety Net)
 # ---------------------------------------------------------------------------
+
 
 class TestUnclassifiedItems:
     def test_empty_code_goes_to_sans_code(self, minimal_tco_df):
@@ -542,7 +544,7 @@ class TestUnclassifiedItems:
                     "row_type": "article",
                     "original_row": 3,
                     "parent_code": "",
-                }
+                },
             ]
         )
         merged, alerts = merge_company_into_tco(minimal_tco_df, dpgf_empty, "ACME")
@@ -551,7 +553,9 @@ class TestUnclassifiedItems:
         assert "SANS_CODE" in merged["Code"].values
 
         # Check that the item was inserted
-        item_row = merged[(merged["Code"] == "") & (merged["Désignation"] == "Prestation sans code")]
+        item_row = merged[
+            (merged["Code"] == "") & (merged["Désignation"] == "Prestation sans code")
+        ]
         assert not item_row.empty
         assert item_row.iloc[0]["ACME_Px_Tot_HT"] == Decimal("500")
 
@@ -563,5 +567,7 @@ class TestUnclassifiedItems:
         # Let's call compute_section_totals
         compute_section_totals(merged, "ACME_Px_Tot_HT")
 
-        recap_sc_computed = merged[(merged["Code"] == "SANS_CODE") & (merged["row_type"] == "recap")]
+        recap_sc_computed = merged[
+            (merged["Code"] == "SANS_CODE") & (merged["row_type"] == "recap")
+        ]
         assert recap_sc_computed.iloc[0]["ACME_Px_Tot_HT"] == Decimal("500")

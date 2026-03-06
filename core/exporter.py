@@ -78,7 +78,9 @@ FONT_GRAND_TOTAL = Font(name="Tahoma", bold=True, size=11, color="FFFFFF")  # bl
 FONT_DATA = Font(name="Tahoma", size=9, color="000000")
 FONT_SUB_SECTION = Font(name="Tahoma", bold=True, size=9, color="314E85")  # bleu foncé — référence
 
-FILL_HEADER = PatternFill(start_color="1B2A47", end_color="1B2A47", fill_type="solid") # Bleu nuit corporate
+FILL_HEADER = PatternFill(
+    start_color="1B2A47", end_color="1B2A47", fill_type="solid"
+)  # Bleu nuit corporate
 FILL_COMPANY_COLORS = [
     PatternFill(start_color="548235", end_color="548235", fill_type="solid"),
     PatternFill(start_color="BF8F00", end_color="BF8F00", fill_type="solid"),
@@ -119,7 +121,9 @@ FILL_RECAP_SUMMARY = PatternFill(  # bleu clair acier
     start_color="DDEBF7", end_color="DDEBF7", fill_type="solid"
 )
 FILL_TOTAL_LINE = FILL_WHITE
-FILL_ZEBRA_EVEN = PatternFill(start_color="F7F9FB", end_color="F7F9FB", fill_type="solid") # Gris perle très discret pour lignes paires
+FILL_ZEBRA_EVEN = PatternFill(
+    start_color="F7F9FB", end_color="F7F9FB", fill_type="solid"
+)  # Gris perle très discret pour lignes paires
 FILL_RECAP_HEADER = PatternFill(  # marine foncé — bandeau titre récapitulatif
     start_color="17375E", end_color="17375E", fill_type="solid"
 )
@@ -141,8 +145,12 @@ FILL_MONTANT_TTC = PatternFill(
     start_color="0D2137", end_color="0D2137", fill_type="solid"
 )  # bleu très foncé
 
-FILL_ERROR = PatternFill(start_color="FCE4E4", end_color="FCE4E4", fill_type="solid")     # Rouge pastel
-FILL_WARNING = PatternFill(start_color="FFF4CE", end_color="FFF4CE", fill_type="solid")   # Jaune pastel
+FILL_ERROR = PatternFill(
+    start_color="FCE4E4", end_color="FCE4E4", fill_type="solid"
+)  # Rouge pastel
+FILL_WARNING = PatternFill(
+    start_color="FFF4CE", end_color="FFF4CE", fill_type="solid"
+)  # Jaune pastel
 FILL_NOTE = PatternFill(start_color="FDF6E3", end_color="FDF6E3", fill_type="solid")
 FILL_INFO = PatternFill(start_color="E6F2F9", end_color="E6F2F9", fill_type="solid")
 
@@ -159,11 +167,11 @@ FONT_OPT_CLASS = Font(name="Tahoma", bold=True, size=11, color="FFFFFF")
 FILL_OPT_CLASS = PatternFill(start_color="7030A0", end_color="7030A0", fill_type="solid")  # Violet
 
 FONT_99_CLASS = Font(name="Tahoma", bold=True, size=11, color="FFFFFF")
-FILL_99_CLASS = PatternFill(start_color="5B5B5B", end_color="5B5B5B", fill_type="solid")  # Gris foncé
+FILL_99_CLASS = PatternFill(
+    start_color="5B5B5B", end_color="5B5B5B", fill_type="solid"
+)  # Gris foncé
 
-FONT_SANS_CODE_CLASS = Font(
-    name="Tahoma", bold=True, size=11, color="FFFFFF"
-)
+FONT_SANS_CODE_CLASS = Font(name="Tahoma", bold=True, size=11, color="FFFFFF")
 FILL_SANS_CODE_CLASS = PatternFill(
     start_color="833C00", end_color="833C00", fill_type="solid"
 )  # Brun
@@ -468,8 +476,10 @@ def export_tco(
         ws.cell(row=current_row, column=2, value=moa)
 
         # --- Légende Visuelle (Premium) ---
-        _l_col = 8 # Colonne H
-        ws.cell(row=current_row, column=_l_col, value="Légende Analyse :").font = Font(bold=True, italic=True, size=9)
+        _l_col = 8  # Colonne H
+        ws.cell(row=current_row, column=_l_col, value="Légende Analyse :").font = Font(
+            bold=True, italic=True, size=9
+        )
 
         _best = ws.cell(row=current_row, column=_l_col + 1, value="● Meilleur Prix")
         _best.font = Font(color="38761D", bold=True, size=9)
@@ -485,7 +495,11 @@ def export_tco(
         ws.cell(row=current_row, column=1, value="Devise :").font = Font(bold=True)
         ws.cell(row=current_row, column=2, value=devise)
 
-        _hint = ws.cell(row=current_row, column=_l_col + 1, value="💡 Astuce : Utilisez les boutons [1] [2] à gauche pour plier les détails")
+        _hint = ws.cell(
+            row=current_row,
+            column=_l_col + 1,
+            value="💡 Astuce : Utilisez les boutons [1] [2] à gauche pour plier les détails",
+        )
         _hint.font = Font(color="2F5496", size=8, italic=True)
 
         current_row += 2  # Add a blank line
@@ -757,8 +771,14 @@ def export_tco(
         for comp in companies:
             if row_type != "section_header":
                 ws.cell(row=excel_row, column=col_offset, value=row.get(f"{comp}_U."))
-                ws.cell(row=excel_row, column=col_offset + 1, value=_clean_val(row.get(f"{comp}_Qu.")))
-                ws.cell(row=excel_row, column=col_offset + 2, value=_clean_val(row.get(f"{comp}_Px_U_HT")))
+                ws.cell(
+                    row=excel_row, column=col_offset + 1, value=_clean_val(row.get(f"{comp}_Qu."))
+                )
+                ws.cell(
+                    row=excel_row,
+                    column=col_offset + 2,
+                    value=_clean_val(row.get(f"{comp}_Px_U_HT")),
+                )
 
             qu_col = get_column_letter(col_offset + 1)
             px_col = get_column_letter(col_offset + 2)
@@ -789,7 +809,11 @@ def export_tco(
                     )
                 else:
                     # Section forfaitaire : valeur propagée par Passe 2 sur la ligne recap.
-                    ws.cell(row=excel_row, column=col_offset + 3, value=_clean_val(row.get(f"{comp}_Px_Tot_HT")))
+                    ws.cell(
+                        row=excel_row,
+                        column=col_offset + 3,
+                        value=_clean_val(row.get(f"{comp}_Px_Tot_HT")),
+                    )
             elif row_type == "recap_summary":
                 target_row = section_total_row.get(code)
                 art_rows = section_articles.get(code, [])
@@ -803,7 +827,9 @@ def export_tco(
                     )
                 else:
                     ws.cell(
-                        row=excel_row, column=col_offset + 3, value=_clean_val(row.get(f"{comp}_Px_Tot_HT"))
+                        row=excel_row,
+                        column=col_offset + 3,
+                        value=_clean_val(row.get(f"{comp}_Px_Tot_HT")),
                     )
             elif _RE_MONTANT_HT.search(desig_lower):
                 _sum_rows = recap_summary_rows or list(section_total_row.values())
@@ -815,7 +841,9 @@ def export_tco(
                     )
                 else:
                     ws.cell(
-                        row=excel_row, column=col_offset + 3, value=_clean_val(row.get(f"{comp}_Px_Tot_HT"))
+                        row=excel_row,
+                        column=col_offset + 3,
+                        value=_clean_val(row.get(f"{comp}_Px_Tot_HT")),
                     )
             elif _RE_TVA_ONLY.search(desig_lower) and not _RE_HT_ONLY.search(desig_lower):
                 if ht_row_idx is not None:
@@ -826,7 +854,9 @@ def export_tco(
                     )
                 else:
                     ws.cell(
-                        row=excel_row, column=col_offset + 3, value=_clean_val(row.get(f"{comp}_Px_Tot_HT"))
+                        row=excel_row,
+                        column=col_offset + 3,
+                        value=_clean_val(row.get(f"{comp}_Px_Tot_HT")),
                     )
             elif _RE_MONTANT_TTC.search(desig_lower):
                 if ht_row_idx is not None and tva_row_idx is not None:
@@ -837,12 +867,19 @@ def export_tco(
                     )
                 else:
                     ws.cell(
-                        row=excel_row, column=col_offset + 3, value=_clean_val(row.get(f"{comp}_Px_Tot_HT"))
+                        row=excel_row,
+                        column=col_offset + 3,
+                        value=_clean_val(row.get(f"{comp}_Px_Tot_HT")),
                     )
             elif row_type == "sub_section":
                 comp_qu = _clean_val(row.get(f"{comp}_Qu."))
                 comp_px = _clean_val(row.get(f"{comp}_Px_U_HT"))
-                if isinstance(comp_qu, (int, float)) and isinstance(comp_px, (int, float)) and comp_qu != 0 and comp_px != 0:
+                if (
+                    isinstance(comp_qu, (int, float))
+                    and isinstance(comp_px, (int, float))
+                    and comp_qu != 0
+                    and comp_px != 0
+                ):
                     ws.cell(
                         row=excel_row,
                         column=col_offset + 3,
@@ -850,12 +887,18 @@ def export_tco(
                     )
                 else:
                     ws.cell(
-                        row=excel_row, column=col_offset + 3, value=_clean_val(row.get(f"{comp}_Px_Tot_HT"))
+                        row=excel_row,
+                        column=col_offset + 3,
+                        value=_clean_val(row.get(f"{comp}_Px_Tot_HT")),
                     )
             elif row_type == "section_header":
                 ws.cell(row=excel_row, column=col_offset + 3, value=None)
             else:
-                ws.cell(row=excel_row, column=col_offset + 3, value=_clean_val(row.get(f"{comp}_Px_Tot_HT")))
+                ws.cell(
+                    row=excel_row,
+                    column=col_offset + 3,
+                    value=_clean_val(row.get(f"{comp}_Px_Tot_HT")),
+                )
 
             if row_type != "section_header":
                 ws.cell(row=excel_row, column=col_offset + 4, value=row.get(f"{comp}_Commentaire"))
@@ -985,7 +1028,7 @@ def export_tco(
                         # On met le prix unitaire en gras / couleur pour le distinguer
                         best_font = _copy(cell.font)
                         best_font.bold = True
-                        best_font.color = "38761D" # Vert foncé pro
+                        best_font.color = "38761D"  # Vert foncé pro
                         ws.cell(row=excel_row, column=_c_off + 2).font = best_font
 
                     # --- NON CHIFFRÉ (NC) ---
@@ -1189,7 +1232,9 @@ def export_tco(
         ws.column_dimensions[get_column_letter(_cb + 1)].width = 9.5  # Qu.
         ws.column_dimensions[get_column_letter(_cb + 2)].width = 14.125  # Px U HT
         ws.column_dimensions[get_column_letter(_cb + 3)].width = 16.5  # Px Tot HT
-        ws.column_dimensions[get_column_letter(_cb + 4)].width = 30.0  # Commentaire (élargi pour wrap)
+        ws.column_dimensions[
+            get_column_letter(_cb + 4)
+        ].width = 30.0  # Commentaire (élargi pour wrap)
 
     # Hauteurs en-têtes : 14.25 pt (conforme référence)
     ws.row_dimensions[header_row_1].height = 14.25

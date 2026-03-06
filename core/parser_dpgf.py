@@ -273,7 +273,9 @@ def parse_dpgf(filepath: str) -> tuple[pd.DataFrame, list[dict]]:
             if (triggered_by_desig or triggered_by_code) and not is_option_zone:
                 log.info(
                     "Ligne %d : zone OPTION/VARIANTE (code='%s' desig='%s')",
-                    row_idx, code_str, desig_str,
+                    row_idx,
+                    code_str,
+                    desig_str,
                 )
                 is_option_zone = True
 
@@ -387,18 +389,23 @@ def parse_dpgf(filepath: str) -> tuple[pd.DataFrame, list[dict]]:
 
             # Mots-clés caractérisant le total général
             if (
-                ("total" in row_clean and "ht" in row_clean) or
-                "montant ht" in row_clean or
-                "total général" in row_clean or
-                "total general" in row_clean or
-                "total dpgf" in row_clean
+                ("total" in row_clean and "ht" in row_clean)
+                or "montant ht" in row_clean
+                or "total général" in row_clean
+                or "total general" in row_clean
+                or "total dpgf" in row_clean
             ):
                 # Exclure les résumés ou sous-totaux de sections
-                if not any(kw in row_clean for kw in ["section ", "lot ", "chapitre", "titre ", "sous-total"]):
+                if not any(
+                    kw in row_clean
+                    for kw in ["section ", "lot ", "chapitre", "titre ", "sous-total"]
+                ):
                     if len(row_tuple) > idx_tot and idx_tot >= 0:
                         raw_val = row_tuple[idx_tot]
                         if pd.notna(raw_val) and str(raw_val).strip() != "":
-                            val_str = str(raw_val).replace("€", "").replace(" ", "").replace("\u202f", "")
+                            val_str = (
+                                str(raw_val).replace("€", "").replace(" ", "").replace("\u202f", "")
+                            )
                             # Nettoyage des milliers / décimales
                             if "," in val_str and "." not in val_str:
                                 val_str = val_str.replace(",", ".")
@@ -411,15 +418,20 @@ def parse_dpgf(filepath: str) -> tuple[pd.DataFrame, list[dict]]:
                             try:
                                 extracted_ht = float(val_str)
                                 if extracted_ht > 0:
-                                    alerts.append({
-                                        "type": "info_ht",
-                                        "color": "blue",
-                                        "row": 0,
-                                        "code": "",
-                                        "message": f"Montant HT déclaré extrait : {extracted_ht}",
-                                        "value": extracted_ht
-                                    })
-                                    log.info("Montant HT déclaré extrait pour vérification: %.2f", extracted_ht)
+                                    alerts.append(
+                                        {
+                                            "type": "info_ht",
+                                            "color": "blue",
+                                            "row": 0,
+                                            "code": "",
+                                            "message": f"Montant HT déclaré extrait : {extracted_ht}",
+                                            "value": extracted_ht,
+                                        }
+                                    )
+                                    log.info(
+                                        "Montant HT déclaré extrait pour vérification: %.2f",
+                                        extracted_ht,
+                                    )
                                     break
                             except ValueError:
                                 pass

@@ -22,7 +22,9 @@ _RE_MONTANT_HT = re.compile(r"montant\s+ht")
 _RE_TVA_ONLY = re.compile(r"\btva\b")
 _RE_HT_ONLY = re.compile(r"\bht\b")
 _RE_MONTANT_TTC = re.compile(r"montant\s+ttc|(?<!\w)ttc(?!\w)")
-_RE_JUNK_TOTAL = re.compile(r"\b(total|sous-total|montant|somme|global|net\s+a\s+payer|tva|ttc)\b", re.I)
+_RE_JUNK_TOTAL = re.compile(
+    r"\b(total|sous-total|montant|somme|global|net\s+a\s+payer|tva|ttc)\b", re.I
+)
 
 
 # ---------------------------------------------------------------------------
@@ -530,7 +532,7 @@ def _apply_total_lines(
         "montant ht": montant_ht,
         "tva": tva,
         "ttc": montant_ttc,
-        "option": montant_options if montant_options is not None else Decimal("0.0")
+        "option": montant_options if montant_options is not None else Decimal("0.0"),
     }
 
     for idx, row in df.iterrows():
@@ -615,7 +617,11 @@ def merge_company_into_tco(
 
     # Itération optimisée (100x plus rapide qu'iterrows simple)
     for idx, row_type, raw_code, parent_c in zip(
-        merged_df.index, merged_df["row_type"], merged_df["Code"], merged_df["parent_code"], strict=False
+        merged_df.index,
+        merged_df["row_type"],
+        merged_df["Code"],
+        merged_df["parent_code"],
+        strict=False,
     ):
         code = _normalize_code(raw_code)
         if code and row_type not in ("empty", "recap", "recap_summary"):
@@ -671,14 +677,17 @@ def merge_company_into_tco(
                 # L'alerte sera émise après le matching (warning si ok, pas error)
                 log.warning(
                     "Code DPGF malformé corrigé : %r → %r (%s)",
-                    raw_str, corrected_code, company_name,
+                    raw_str,
+                    corrected_code,
+                    company_name,
                 )
                 code = corrected_code
             else:
                 # Non corrigeable → error immédiate (ira en section 99)
                 log.warning(
                     "Code DPGF non corrigeable : %r (%s) — insertion en extra",
-                    raw_str, company_name,
+                    raw_str,
+                    company_name,
                 )
                 code = ""  # force le bloc "code non trouvé" plus bas
                 alerts.append(
@@ -723,17 +732,21 @@ def merge_company_into_tco(
                     found_insertion = True
                     log.info(
                         "Code vide ligne %s → match désignation code=%s (sim. %.0f%%)",
-                        dpgf_row.get("original_row", "?"), m_code, m_score * 100,
+                        dpgf_row.get("original_row", "?"),
+                        m_code,
+                        m_score * 100,
                     )
-                    alerts.append({
-                        "type": "warning",
-                        "color": "orange",
-                        "code": m_code,
-                        "message": (
-                            f"Code vide → correspondance désignation "
-                            f"code TCO : {m_code} (sim. {m_score:.0%}) — {company_name}"
-                        ),
-                    })
+                    alerts.append(
+                        {
+                            "type": "warning",
+                            "color": "orange",
+                            "code": m_code,
+                            "message": (
+                                f"Code vide → correspondance désignation "
+                                f"code TCO : {m_code} (sim. {m_score:.0%}) — {company_name}"
+                            ),
+                        }
+                    )
 
             # --- TENTATIVE D'INSERTION HIÉRARCHIQUE SI CODE EXISTE ---
             if not found_insertion and code:
@@ -744,14 +757,34 @@ def merge_company_into_tco(
                 if norm_parent in recap_by_parent:
                     idx = recap_by_parent[norm_parent]
                     parent_code = parent_suggested
-                    new_row = _build_new_row(code, dpgf_row, merged_df, col_u, col_qu, col_pu, col_tot, col_com, parent_code, int(idx))
+                    new_row = _build_new_row(
+                        code,
+                        dpgf_row,
+                        merged_df,
+                        col_u,
+                        col_qu,
+                        col_pu,
+                        col_tot,
+                        col_com,
+                        parent_code,
+                        int(idx),
+                    )
                     new_row["is_added"] = True
                     _cur_com = str(new_row.get(col_com) or "").strip()
-                    new_row[col_com] = f"{_added_note} ; {_cur_com}".strip(" ;") if _cur_com else _added_note
+                    new_row[col_com] = (
+                        f"{_added_note} ; {_cur_com}".strip(" ;") if _cur_com else _added_note
+                    )
                     insertions.append((int(idx), len(insertions), new_row))
                     matched_count += 1
                     found_insertion = True
-                    alerts.append({"type": "info", "color": "blue", "code": code, "message": f"Code ajouté par l'entreprise : '{raw_code}' (inséré sous '{parent_suggested}') — {company_name}"})
+                    alerts.append(
+                        {
+                            "type": "info",
+                            "color": "blue",
+                            "code": code,
+                            "message": f"Code ajouté par l'entreprise : '{raw_code}' (inséré sous '{parent_suggested}') — {company_name}",
+                        }
+                    )
                 else:
                     # Fallback hiérarchique ancêtre
                     fallback_parts = parent_suggested.split(".")
@@ -764,14 +797,36 @@ def merge_company_into_tco(
                         if norm_fb in recap_by_parent:
                             idx = recap_by_parent[norm_fb]
                             parent_code = fb_parent
-                            new_row = _build_new_row(code, dpgf_row, merged_df, col_u, col_qu, col_pu, col_tot, col_com, parent_code, int(idx))
+                            new_row = _build_new_row(
+                                code,
+                                dpgf_row,
+                                merged_df,
+                                col_u,
+                                col_qu,
+                                col_pu,
+                                col_tot,
+                                col_com,
+                                parent_code,
+                                int(idx),
+                            )
                             new_row["is_added"] = True
                             _cur_com = str(new_row.get(col_com) or "").strip()
-                            new_row[col_com] = f"{_added_note} ; {_cur_com}".strip(" ;") if _cur_com else _added_note
+                            new_row[col_com] = (
+                                f"{_added_note} ; {_cur_com}".strip(" ;")
+                                if _cur_com
+                                else _added_note
+                            )
                             insertions.append((int(idx), len(insertions), new_row))
                             matched_count += 1
                             found_insertion = True
-                            alerts.append({"type": "info", "color": "blue", "code": code, "message": f"Code ajouté par l'entreprise : '{raw_code}' (inséré sous '{fb_parent}') — {company_name}"})
+                            alerts.append(
+                                {
+                                    "type": "info",
+                                    "color": "blue",
+                                    "code": code,
+                                    "message": f"Code ajouté par l'entreprise : '{raw_code}' (inséré sous '{fb_parent}') — {company_name}",
+                                }
+                            )
                             break
 
             if not found_insertion:
@@ -789,22 +844,22 @@ def merge_company_into_tco(
                 desig = str(dpgf_row.get("Désignation", ""))
                 is_junk = bool(_RE_JUNK_TOTAL.search(desig))
                 if is_junk:
-                    reason += (
-                        " | ⚠️ TOTAL/SOUS-TOTAL DÉTECTÉ"
-                        " (Exclu du TCO pour éviter doublon)"
-                    )
+                    reason += " | ⚠️ TOTAL/SOUS-TOTAL DÉTECTÉ (Exclu du TCO pour éviter doublon)"
                     dpgf_row["skip_sum"] = True
 
                 orig_row_val = dpgf_row.get("original_row")
-                orig_row_int = (
-                    int(float(orig_row_val or 0))
-                    if pd.notna(orig_row_val)
-                    else 0
-                )
+                orig_row_int = int(float(orig_row_val or 0)) if pd.notna(orig_row_val) else 0
                 new_row = _build_new_row(
-                    raw_code, dpgf_row, merged_df,
-                    col_u, col_qu, col_pu, col_tot, col_com,
-                    "99", orig_row_int,
+                    raw_code,
+                    dpgf_row,
+                    merged_df,
+                    col_u,
+                    col_qu,
+                    col_pu,
+                    col_tot,
+                    col_com,
+                    "99",
+                    orig_row_int,
                 )
 
                 # Insertion du diagnostic dans le commentaire entreprise
@@ -821,7 +876,14 @@ def merge_company_into_tco(
                 else:
                     unclassified_std.append(new_row)
 
-                alerts.append({"type": "warning", "color": "orange", "code": code, "message": f"{reason} ({company_name})"})
+                alerts.append(
+                    {
+                        "type": "warning",
+                        "color": "orange",
+                        "code": code,
+                        "message": f"{reason} ({company_name})",
+                    }
+                )
 
         else:
             # --- MATCHING STANDARD ---
@@ -841,9 +903,16 @@ def merge_company_into_tco(
                 else:
                     var_note = f"⚠️ Duplicata de '{code}' (présent plusieurs fois dans le DPGF)"
                 new_row = _build_new_row(
-                    raw_str, dpgf_row, merged_df,
-                    col_u, col_qu, col_pu, col_tot, col_com,
-                    "", int(idx),
+                    raw_str,
+                    dpgf_row,
+                    merged_df,
+                    col_u,
+                    col_qu,
+                    col_pu,
+                    col_tot,
+                    col_com,
+                    "",
+                    int(idx),
                 )
                 new_row["Code"] = raw_str  # affiche le code variante d'origine
                 new_row[col_com] = f"{var_note} ; {base_com}".strip(" ;") if base_com else var_note
@@ -852,7 +921,9 @@ def merge_company_into_tco(
                 insertions.append((int(idx), len(insertions), new_row))
                 log.info(
                     "Variante '%s' → extra row après '%s' (%s)",
-                    raw_str, code, company_name,
+                    raw_str,
+                    code,
+                    company_name,
                 )
                 if is_malformed and corrected_code:
                     message = (
@@ -865,12 +936,14 @@ def merge_company_into_tco(
                         f"(code de base déjà rempli) — {company_name}"
                     )
 
-                alerts.append({
-                    "type": "warning",
-                    "color": "orange",
-                    "code": code,
-                    "message": message,
-                })
+                alerts.append(
+                    {
+                        "type": "warning",
+                        "color": "orange",
+                        "code": code,
+                        "message": message,
+                    }
+                )
                 matched_count += 1
 
             else:
@@ -880,23 +953,21 @@ def merge_company_into_tco(
                 merged_df.at[idx, col_pu] = dpgf_row["Px_U_HT"]
                 merged_df.at[idx, col_tot] = dpgf_row["Px_Tot_HT"]
                 if is_malformed and corrected_code:
-                    malform_note = (
-                        f"⚠️ Code incorrect : '{raw_str}' "
-                        f"— corrigé en '{corrected_code}'"
-                    )
+                    malform_note = f"⚠️ Code incorrect : '{raw_str}' — corrigé en '{corrected_code}'"
                     merged_df.at[idx, col_com] = (
                         f"{malform_note} ; {base_com}".strip(" ;") if base_com else malform_note
                     )
                     # Warning (pas error) : la correction a réussi
-                    alerts.append({
-                        "type": "warning",
-                        "color": "orange",
-                        "code": corrected_code,
-                        "message": (
-                            f"Code '{raw_str}' corrigé en '{corrected_code}'"
-                            f" — {company_name}"
-                        ),
-                    })
+                    alerts.append(
+                        {
+                            "type": "warning",
+                            "color": "orange",
+                            "code": corrected_code,
+                            "message": (
+                                f"Code '{raw_str}' corrigé en '{corrected_code}' — {company_name}"
+                            ),
+                        }
+                    )
                 else:
                     merged_df.at[idx, col_com] = base_com
 
@@ -908,7 +979,9 @@ def merge_company_into_tco(
                 # --- QC CHECK ---
                 tco_desig = str(merged_df.at[idx, "Désignation"] or "").strip()
                 alerts.extend(
-                    _qc_check_dpgf_row(dpgf_row, code, company_name, tco_desig, tco_codes_set, is_code_matched=True)
+                    _qc_check_dpgf_row(
+                        dpgf_row, code, company_name, tco_desig, tco_codes_set, is_code_matched=True
+                    )
                 )
                 matched_count += 1
 
@@ -932,45 +1005,146 @@ def merge_company_into_tco(
         if unclassified_opt:
             if not any(r.get("Code") == "OPT_DYN" for r in new_rows):
                 new_rows.append({c: None for c in merged_df.columns})
-                new_rows[-1].update({"Code": "OPT_DYN", "Désignation": "Options & Variantes (Hors-Bordereau)", "Entete": "Bd_OPT_Bord", "row_type": "section_header", "parent_code": "", "is_extra_line": True, "is_option": True})
+                new_rows[-1].update(
+                    {
+                        "Code": "OPT_DYN",
+                        "Désignation": "Options & Variantes (Hors-Bordereau)",
+                        "Entete": "Bd_OPT_Bord",
+                        "row_type": "section_header",
+                        "parent_code": "",
+                        "is_extra_line": True,
+                        "is_option": True,
+                    }
+                )
             new_rows.extend(unclassified_opt)
-            if not any(r.get("Code") == "OPT_DYN" and r.get("row_type") == "recap" for r in new_rows):
+            if not any(
+                r.get("Code") == "OPT_DYN" and r.get("row_type") == "recap" for r in new_rows
+            ):
                 new_rows.append({c: None for c in merged_df.columns})
-                new_rows[-1].update({"Code": "OPT_DYN", "Désignation": "Total Options & Variantes", "Entete": "Bord_OPT_Recap", "row_type": "recap", "parent_code": "OPT_DYN", "is_extra_line": True, "is_option": True})
-            if not any(r.get("Code") == "OPT_DYN" and r.get("row_type") == "recap_summary" for r in new_rows):
+                new_rows[-1].update(
+                    {
+                        "Code": "OPT_DYN",
+                        "Désignation": "Total Options & Variantes",
+                        "Entete": "Bord_OPT_Recap",
+                        "row_type": "recap",
+                        "parent_code": "OPT_DYN",
+                        "is_extra_line": True,
+                        "is_option": True,
+                    }
+                )
+            if not any(
+                r.get("Code") == "OPT_DYN" and r.get("row_type") == "recap_summary"
+                for r in new_rows
+            ):
                 summary_row = {c: None for c in merged_df.columns}
-                summary_row.update({"Code": "OPT_DYN", "Désignation": "Options & Variantes (Hors-Bordereau)", "row_type": "recap_summary", "is_extra_line": True, "is_option": True})
-                insert_idx = next((i for i, r in enumerate(new_rows) if r.get("row_type") == "total_line"), len(new_rows))
+                summary_row.update(
+                    {
+                        "Code": "OPT_DYN",
+                        "Désignation": "Options & Variantes (Hors-Bordereau)",
+                        "row_type": "recap_summary",
+                        "is_extra_line": True,
+                        "is_option": True,
+                    }
+                )
+                insert_idx = next(
+                    (i for i, r in enumerate(new_rows) if r.get("row_type") == "total_line"),
+                    len(new_rows),
+                )
                 new_rows.insert(insert_idx, summary_row)
 
         # 2. Section 99
         if unclassified_std:
             if not any(r.get("Code") == "99" for r in new_rows):
                 new_rows.append({c: None for c in merged_df.columns})
-                new_rows[-1].update({"Code": "99", "Désignation": "99 - Articles non classables (Code absent ou inconnu)", "Entete": "Bd_99_Bord", "row_type": "section_header", "parent_code": "", "is_extra_line": True})
+                new_rows[-1].update(
+                    {
+                        "Code": "99",
+                        "Désignation": "99 - Articles non classables (Code absent ou inconnu)",
+                        "Entete": "Bd_99_Bord",
+                        "row_type": "section_header",
+                        "parent_code": "",
+                        "is_extra_line": True,
+                    }
+                )
             new_rows.extend(unclassified_std)
             if not any(r.get("Code") == "99" and r.get("row_type") == "recap" for r in new_rows):
                 new_rows.append({c: None for c in merged_df.columns})
-                new_rows[-1].update({"Code": "99", "Désignation": "Total Articles non classables", "Entete": "Bord_99_Recap", "row_type": "recap", "parent_code": "99", "is_extra_line": True})
-            if not any(r.get("Code") == "99" and r.get("row_type") == "recap_summary" for r in new_rows):
+                new_rows[-1].update(
+                    {
+                        "Code": "99",
+                        "Désignation": "Total Articles non classables",
+                        "Entete": "Bord_99_Recap",
+                        "row_type": "recap",
+                        "parent_code": "99",
+                        "is_extra_line": True,
+                    }
+                )
+            if not any(
+                r.get("Code") == "99" and r.get("row_type") == "recap_summary" for r in new_rows
+            ):
                 summary_row = {c: None for c in merged_df.columns}
-                summary_row.update({"Code": "99", "Désignation": "99 - Articles non classables (Code absent ou inconnu)", "row_type": "recap_summary", "is_extra_line": True, "is_option": False})
-                insert_idx = next((i for i, r in enumerate(new_rows) if r.get("row_type") == "total_line"), len(new_rows))
+                summary_row.update(
+                    {
+                        "Code": "99",
+                        "Désignation": "99 - Articles non classables (Code absent ou inconnu)",
+                        "row_type": "recap_summary",
+                        "is_extra_line": True,
+                        "is_option": False,
+                    }
+                )
+                insert_idx = next(
+                    (i for i, r in enumerate(new_rows) if r.get("row_type") == "total_line"),
+                    len(new_rows),
+                )
                 new_rows.insert(insert_idx, summary_row)
 
         # 3. Section SANS_CODE (Articles présents sans code dans le DPGF)
         if unclassified_nocode:
             if not any(r.get("Code") == "SANS_CODE" for r in new_rows):
                 new_rows.append({c: None for c in merged_df.columns})
-                new_rows[-1].update({"Code": "SANS_CODE", "Désignation": "Articles sans code (présents dans le DPGF mais sans code)", "Entete": "Bd_SC_Bord", "row_type": "section_header", "parent_code": "", "is_extra_line": True})
+                new_rows[-1].update(
+                    {
+                        "Code": "SANS_CODE",
+                        "Désignation": "Articles sans code (présents dans le DPGF mais sans code)",
+                        "Entete": "Bd_SC_Bord",
+                        "row_type": "section_header",
+                        "parent_code": "",
+                        "is_extra_line": True,
+                    }
+                )
             new_rows.extend(unclassified_nocode)
-            if not any(r.get("Code") == "SANS_CODE" and r.get("row_type") == "recap" for r in new_rows):
+            if not any(
+                r.get("Code") == "SANS_CODE" and r.get("row_type") == "recap" for r in new_rows
+            ):
                 new_rows.append({c: None for c in merged_df.columns})
-                new_rows[-1].update({"Code": "SANS_CODE", "Désignation": "Total Articles sans code", "Entete": "Bord_SC_Recap", "row_type": "recap", "parent_code": "SANS_CODE", "is_extra_line": True})
-            if not any(r.get("Code") == "SANS_CODE" and r.get("row_type") == "recap_summary" for r in new_rows):
+                new_rows[-1].update(
+                    {
+                        "Code": "SANS_CODE",
+                        "Désignation": "Total Articles sans code",
+                        "Entete": "Bord_SC_Recap",
+                        "row_type": "recap",
+                        "parent_code": "SANS_CODE",
+                        "is_extra_line": True,
+                    }
+                )
+            if not any(
+                r.get("Code") == "SANS_CODE" and r.get("row_type") == "recap_summary"
+                for r in new_rows
+            ):
                 summary_row = {c: None for c in merged_df.columns}
-                summary_row.update({"Code": "SANS_CODE", "Désignation": "Articles sans code", "row_type": "recap_summary", "is_extra_line": True, "is_option": False})
-                insert_idx = next((i for i, r in enumerate(new_rows) if r.get("row_type") == "total_line"), len(new_rows))
+                summary_row.update(
+                    {
+                        "Code": "SANS_CODE",
+                        "Désignation": "Articles sans code",
+                        "row_type": "recap_summary",
+                        "is_extra_line": True,
+                        "is_option": False,
+                    }
+                )
+                insert_idx = next(
+                    (i for i, r in enumerate(new_rows) if r.get("row_type") == "total_line"),
+                    len(new_rows),
+                )
                 new_rows.insert(insert_idx, summary_row)
 
         merged_df = pd.DataFrame(new_rows).reset_index(drop=True)
@@ -978,9 +1152,7 @@ def merge_company_into_tco(
     # Commentaire sur les lignes Montant HT/TVA/TTC si des articles SANS_CODE existent (Feature 3)
     if unclassified_nocode:
         nocode_total = sum(
-            float(r.get(col_tot) or 0)
-            for r in unclassified_nocode
-            if pd.notna(r.get(col_tot))
+            float(r.get(col_tot) or 0) for r in unclassified_nocode if pd.notna(r.get(col_tot))
         )
         if nocode_total != 0:
             nocode_count = len(unclassified_nocode)
@@ -1001,14 +1173,26 @@ def merge_company_into_tco(
         unmatched = total_dpgf - matched_count
         if match_rate < 50:
             msg = f"DPGF ignoré — trop peu de codes correspondent au template ({matched_count}/{total_dpgf} codes matchés, soit {match_rate:.0f}%)."
-            log.error("Match rate critique %s : %.1f%% (%d/%d)", company_name, match_rate, matched_count, total_dpgf)
-            alerts.insert(0, {"type": "error", "color": "red", "row": 0, "code": "", "message": msg})
+            log.error(
+                "Match rate critique %s : %.1f%% (%d/%d)",
+                company_name,
+                match_rate,
+                matched_count,
+                total_dpgf,
+            )
+            alerts.insert(
+                0, {"type": "error", "color": "red", "row": 0, "code": "", "message": msg}
+            )
             return tco_df, alerts
         elif match_rate < 90:
             msg = f"Correspondance DPGF/Template partielle : {match_rate:.0f}% — {unmatched} codes non trouvés sur {total_dpgf}"
             log.warning(msg)
-            alerts.insert(0, {"type": "warning", "color": "orange", "row": 0, "code": "", "message": msg})
-        log.info("Match rate %s : %.1f%% (%d/%d)", company_name, match_rate, matched_count, total_dpgf)
+            alerts.insert(
+                0, {"type": "warning", "color": "orange", "row": 0, "code": "", "message": msg}
+            )
+        log.info(
+            "Match rate %s : %.1f%% (%d/%d)", company_name, match_rate, matched_count, total_dpgf
+        )
 
     log.info("Fusion terminée : %d lignes matchées, %d non trouvées", matched_count, len(alerts))
 
@@ -1036,15 +1220,24 @@ def merge_company_into_tco(
             ecart = abs(tco_ht - extracted_ht)
             if ecart > 1.0:
                 msg_alert = f"Le Montant HT déclaré ({extracted_ht:,.2f} €) diffère du calcul TCO ({tco_ht:,.2f} €) — Écart : {ecart:,.2f} €"
-                log.warning("Écart HT pour %s: déclaré=%.2f, calculé=%.2f (écart %.2f)", company_name, extracted_ht, tco_ht, ecart)
+                log.warning(
+                    "Écart HT pour %s: déclaré=%.2f, calculé=%.2f (écart %.2f)",
+                    company_name,
+                    extracted_ht,
+                    tco_ht,
+                    ecart,
+                )
 
-                alerts.insert(0, {
-                    "type": "warning",
-                    "color": "orange",
-                    "row": 0,
-                    "code": "",
-                    "message": msg_alert
-                })
+                alerts.insert(
+                    0,
+                    {
+                        "type": "warning",
+                        "color": "orange",
+                        "row": 0,
+                        "code": "",
+                        "message": msg_alert,
+                    },
+                )
 
                 for idx in merged_df.index[merged_df["row_type"] == "total_line"]:
                     if "montant ht" in str(merged_df.at[idx, "Désignation"]).lower():
@@ -1087,7 +1280,11 @@ def merge_all_companies(
 
     for comp_name, comp_data in company_data.items():
         merged, merge_alerts = merge_company_into_tco(
-            merged, comp_data["dpgf_df"], comp_name, tva_rate=tva_rate, parse_alerts=comp_data.get("parse_alerts", [])
+            merged,
+            comp_data["dpgf_df"],
+            comp_name,
+            tva_rate=tva_rate,
+            parse_alerts=comp_data.get("parse_alerts", []),
         )
         for alert in comp_data.get("parse_alerts", []):
             alert["company"] = comp_name
