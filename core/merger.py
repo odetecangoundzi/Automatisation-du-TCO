@@ -1293,7 +1293,47 @@ def merge_all_companies(
         all_alerts.extend(comp_data.get("parse_alerts", []))
         all_alerts.extend(merge_alerts)
 
+    # CQ : Vérification de la cohérence des unités entre entreprises
+    unit_alerts = _check_units_consistency(merged)
+    all_alerts.extend(unit_alerts)
+
     return merged, all_alerts
+
+
+def _check_units_consistency(df: pd.DataFrame) -> list[dict]:
+    """
+    Vérifie que toutes les entreprises utilisent la même unité pour un article donné.
+    Génère une alerte orange si des différences sont détectées (hors estimation).
+    """
+    alerts: list[dict] = []
+    # Identifier les colonnes d'unités entreprise (se terminant par _U.)
+    unit_cols = [c for c in df.columns if c.endswith("_U.")]
+    if len(unit_cols) < 2:
+        return alerts
+
+    art_df = df[df["row_type"] == "article"]
+    for idx, row in art_df.iterrows():
+        # Collecter les unités renseignées (non vides)
+        units = {}
+        for col in unit_cols:
+            u = str(row.get(col) or "").strip()
+            if u:
+                company = col.replace("_U.", "")
+                units[company] = u
+
+        if len(set(units.values())) > 1:
+            # Incohérence détectée
+            detail = ", ".join([f"{c}: {u}" for c, u in units.items()])
+            alerts.append(
+                {
+                    "type": "warning",
+                    "color": "orange",
+                    "code": row.get("Code", ""),
+                    "message": f"Unités hétérogènes entre entreprises : {detail}",
+                    "company": "CONTRÔLE QUALITÉ",
+                }
+            )
+    return alerts
 
 
 # ---------------------------------------------------------------------------

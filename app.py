@@ -245,13 +245,76 @@ def display_alerts(alerts: list[dict], title: str = "Alertes") -> None:
 
 
 def display_preview(df, title: str = "Aperçu") -> None:
-    """Affiche un aperçu du DataFrame TCO en masquant les colonnes internes."""
+    """Affiche un aperçu éditable du DataFrame TCO."""
     hidden = {"Entete", "row_type", "original_row", "parent_code"}
     cols = [c for c in df.columns if c not in hidden]
     hidden_types = {"empty", "recap", "recap_summary", "total_line", "total_text"}
-    visible = df[~df["row_type"].isin(hidden_types)][cols]
-    st.write(f"**{title}** ({len(visible)} lignes)")
-    st.dataframe(visible, use_container_width=True, hide_index=True, height=500)
+    
+    # Masquer les lignes techniques pour l'affichage
+    display_df = df[~df["row_type"].isin(hidden_types)][cols]
+    
+    st.write(f"**{title}** ({len(display_df)} lignes)")
+    
+    # Configuration des colonnes éditables (Uniquement Qu, PU et Commentaire pour les entreprises)
+    # Les colonnes de base (A-F) sont en lecture seule pour préserver le modèle.
+    base_cols = {"Code", "Désignation", "Qu.", "U", "Px_U_HT", "Px_Tot_HT", "Commentaire"}
+    column_config = {}
+    for c in cols:
+        if c in base_cols:
+            column_config[c] = st.column_config.Column(disabled=True)
+        elif "_Px_Tot_HT" in c:
+            # Px_Tot_HT est calculé, donc lecture seule
+            column_config[c] = st.column_config.NumberColumn(disabled=True)
+        elif "_Qu." in c or "_Px_U_HT" in c:
+            column_config[c] = st.column_config.NumberColumn(disabled=False)
+        else:
+            column_config[c] = st.column_config.TextColumn(disabled=False)
+
+    edited_df = st.data_editor(
+        display_df,
+        use_container_width=True,
+        hide_index=True,
+        height=500,
+        column_config=column_config,
+        key="tco_main_editor"
+    )
+
+    # Analyse des changements de st.data_editor via session_state
+    if "tco_main_editor" in st.session_state:
+        changes = st.session_state["tco_main_editor"].get("edited_rows")
+        if changes:
+            # Appliquer les changements au DataFrame source (merged_df du lot actif)
+            # On a besoin de mapper l'index de display_df à l'index de merged_df
+            # L'index original est préservé dans display_df (it's a view)
+            lot = _get_active_lot()
+            if lot is not None and lot.get("merged_df") is not None:
+                source_df = lot["merged_df"]
+                any_change = False
+                for row_idx_display, row_changes in changes.items():
+                    # row_idx_display est l'index relatif dans display_df (0 à N)
+                    # On récupère l'index réel de Pandas
+                    real_idx = display_df.index[row_idx_display]
+                    for col_name, new_val in row_changes.items():
+                        source_df.at[real_idx, col_name] = new_val
+                        any_change = True
+                
+                if any_change:
+                    # Recalculer les totaux après modification
+                    compute_section_totals(source_df, "Px_Tot_HT", tva_rate=lot.get("tva_rate", TVA_DEFAULT))
+                    # Recalculer pour chaque entreprise (colonne Px_Tot_HT)
+                    for col in source_df.columns:
+                        if col.endswith("_Px_Tot_HT"):
+                            # Recalculer ligne à ligne Qu * PU pour la ligne modifiée ?
+                            # Plus simple : recalculer tout le bloc pour l'entreprise
+                            company = col.replace("_Px_Tot_HT", "")
+                            qu_col = f"{company}_Qu."
+                            pu_col = f"{company}_Px_U_HT"
+                            source_df[col] = (pd.to_numeric(source_df[qu_col], errors='coerce').fillna(0) * 
+                                            pd.to_numeric(source_df[pu_col], errors='coerce').fillna(0))
+                            compute_section_totals(source_df, col, tva_rate=lot.get("tva_rate", TVA_DEFAULT))
+                    
+                    _active_lot_set("merged_df", source_df)
+                    st.rerun()
 
 
 def _cleanup_file(path: str) -> None:
@@ -622,13 +685,17 @@ if st.session_state.step >= 1:
     if tco_file and _active_lot_get("tco_df") is None:
         path = _safe_save(tco_file)
         if path:
-            with st.spinner("Lecture du DPGF..."):
+            with st.status(f"Import du DPGF modèle : {tco_file.name}...", expanded=True) as status:
                 try:
+                    status.write("Analyse de la structure du fichier...")
                     tco_df, meta = parse_tco(path)
-
+                    
+                    status.write("Recalcul des totaux par section...")
                     # Recaler les totaux de l'estimation (colonne de base)
                     tva_rate_cur = _active_lot_get("tva_rate", TVA_DEFAULT)
                     compute_section_totals(tco_df, "Px_Tot_HT", tva_rate=tva_rate_cur)
+
+                    status.write("Mise à jour de la session...")
 
                     _active_lot_set("tco_df", tco_df)
                     _active_lot_set("tco_meta", meta)
@@ -649,9 +716,9 @@ if st.session_state.step >= 1:
                             f"📋 **Projet :** {info.get('projet', 'N/A')} — "
                             f"**Lot :** {info.get('lot', 'N/A')}"
                         )
-                    template_name = os.path.splitext(tco_file.name)[0]
-                    st.success(f"✅ {template_name} charge — {len(tco_df)} lignes")
+                    status.update(label=f"✅ {template_name} chargé ({len(tco_df)} lignes)", state="complete", expanded=False)
                 except Exception as e:
+                    status.update(label="❌ Erreur lors de l'import", state="error", expanded=True)
                     log.error("Erreur parsing TCO", exc_info=True)
                     st.error(f"❌ Erreur de lecture : {e}")
                 finally:
@@ -789,7 +856,7 @@ if st.session_state.step >= 2:
             type=_DPGF_UPLOADER_TYPES,
             key=f"multi_dpgf_upload_{st.session_state.upload_counter}",
             accept_multiple_files=True,
-            help="Selectionnez tous les fichiers DPGF des entreprises a fusionner (.xlsx, .xls, .xlsb ou .pdf)",
+            help="Sélectionnez tous les fichiers DPGF des entreprises à fusionner (.xlsx, .xls, .xlsb ou .pdf)",
         )
 
         if dpgf_files:
@@ -800,15 +867,16 @@ if st.session_state.step >= 2:
             if new_files:
                 success_count = 0
                 added_companies: list[str] = []
-                for dpgf_file in new_files:
-                    filename_clean = os.path.splitext(dpgf_file.name)[0]
-                    company_name = (
-                        re.sub(r"^DPGF\s+", "", filename_clean, flags=re.IGNORECASE).strip().upper()
-                    )
+                with st.status(f"Importation de {len(new_files)} fichier(s)...", expanded=True) as status:
+                    for dpgf_file in new_files:
+                        filename_clean = os.path.splitext(dpgf_file.name)[0]
+                        company_name = (
+                            re.sub(r"^DPGF\s+", "", filename_clean, flags=re.IGNORECASE).strip().upper()
+                        )
 
-                    path = _safe_save(dpgf_file, allowed_extensions=DPGF_ALLOWED_EXTENSIONS)
-                    if path:
-                        with st.spinner(f"Fusion de {company_name}..."):
+                        status.write(f"Traitement de **{company_name}**...")
+                        path = _safe_save(dpgf_file, allowed_extensions=DPGF_ALLOWED_EXTENSIONS)
+                        if path:
                             try:
                                 # Détection du type réel par magic bytes (prioritaire
                                 # sur l'extension — certains PDF sont renommés .xlsx)
@@ -873,10 +941,18 @@ if st.session_state.step >= 2:
                                         added_companies.append(company_name)
                                         success_count += 1
                             except Exception as e:
+                                    status.write(f"✅ {company_name} intégré.")
+                            except Exception as e:
                                 log.error("Erreur fusion %s", company_name, exc_info=True)
+                                status.write(f"❌ Erreur sur **{company_name}**: {e}")
                                 st.error(f"❌ Erreur sur {company_name}: {e}")
                             finally:
                                 _cleanup_file(path)
+                    
+                    if success_count > 0:
+                        status.update(label=f"✅ {success_count} entreprise(s) importée(s) avec succès.", state="complete", expanded=False)
+                    else:
+                        status.update(label="⚠️ Aucun fichier valide n'a été importé.", state="error")
 
                 if success_count > 0:
                     _active_lot_set("companies", companies_lot)
