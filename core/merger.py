@@ -210,6 +210,23 @@ def _match_by_desig(
     return None, None, 0.0
 
 
+def _is_fuzzy_match(s1: str, s2: str, threshold: float = 0.85) -> bool:
+    """Vérifie si deux chaînes sont très similaires (Jaccard sur mots).
+    Utilisé pour regrouper les options d'entreprises différentes par libellé.
+    Le seuil est plus élevé que pour le matching standard pour éviter les faux positifs.
+    """
+    if not s1 or not s2:
+        return False
+    w1 = set(s1.lower().split())
+    w2 = set(s2.lower().split())
+    if not w1 or not w2:
+        return False
+    union = w1 | w2
+    inter = w1 & w2
+    score = len(inter) / len(union)
+    return score >= threshold
+
+
 def _qc_check_dpgf_row(
     dpgf_row: "pd.Series",
     code: str,
@@ -492,6 +509,7 @@ def _build_new_row(
         "original_row": original_row_idx,
         "parent_code": parent_code,
         "is_extra_line": True,
+        "is_option": dpgf_row.get("is_option", False),
     }
     for col in merged_df.columns:
         if any(
@@ -594,9 +612,9 @@ def merge_company_into_tco(
     col_com = f"{company_name}_Commentaire"
 
     merged_df[col_u] = None
-    merged_df[col_qu] = None
-    merged_df[col_pu] = None
-    merged_df[col_tot] = 0.0
+    merged_df[col_qu] = Decimal("0.0")
+    merged_df[col_pu] = Decimal("0.0")
+    merged_df[col_tot] = Decimal("0.0")
     merged_df[col_com] = None
 
     if dpgf_df.empty:
@@ -648,6 +666,15 @@ def merge_company_into_tco(
         desig = str(row.get("Désignation", "") or "").strip().lower()
         if code and desig:
             tco_desig_index[desig] = (code, idx)
+
+    # Index désignation pour les options dynamiques déjà présentes (OPT_DYN)
+    # Permet de regrouper les mêmes options d'entreprises différentes sur une ligne unique.
+    opt_dyn_desig_index: dict[str, int] = {}
+    for idx, row in merged_df.iterrows():
+        if row.get("parent_code") == "OPT_DYN" and row["row_type"] == "article":
+            desig = str(row.get("Désignation", "") or "").strip().lower()
+            if desig:
+                opt_dyn_desig_index[desig] = idx
 
     # Fusion articles + sub_sections du DPGF
     dpgf_data = dpgf_df[dpgf_df["row_type"].isin(["article", "sub_section"])]
@@ -707,10 +734,39 @@ def merge_company_into_tco(
             found_insertion = False
             parent_code = "99"  # Default base parent
 
-            # --- CODE VIDE : tentative de correspondance par désignation ---
-            # Exclus : lignes option (is_option=True) → jamais matcher sur un article TCO
-            # de base, elles doivent aller en OPT_DYN pour ne pas écraser les quantités.
-            if not code and not dpgf_row.get("is_option"):
+            # --- TENTATIVE DE CORRESPONDANCE PAR DÉSIGNATION ---
+            # 1. Cas des Options (is_option=True) : matching dans OPT_DYN
+            if dpgf_row.get("is_option"):
+                dpgf_desig_raw = str(dpgf_row.get("Désignation", "")).strip()
+                dpgf_desig_lower = dpgf_desig_raw.lower()
+
+                # Match exact ou fuzzy dans les options déjà ajoutées par d'autres entreprises
+                m_opt_idx = opt_dyn_desig_index.get(dpgf_desig_lower)
+                if m_opt_idx is None:
+                    # Fuzzy match si pas de match exact
+                    for existing_desig, existing_idx in opt_dyn_desig_index.items():
+                        if _is_fuzzy_match(dpgf_desig_lower, existing_desig):
+                            m_opt_idx = existing_idx
+                            break
+
+                if m_opt_idx is not None:
+                    # Match trouvé ! On remplit les colonnes de l'entreprise sur la ligne existante
+                    merged_df.at[m_opt_idx, col_u] = dpgf_row.get("U", "")
+                    merged_df.at[m_opt_idx, col_qu] = dpgf_row["Qu."]
+                    merged_df.at[m_opt_idx, col_pu] = dpgf_row["Px_U_HT"]
+                    merged_df.at[m_opt_idx, col_tot] = dpgf_row["Px_Tot_HT"]
+                    merged_df.at[m_opt_idx, col_com] = dpgf_row.get("Commentaire", "")
+                    matched_count += 1
+                    found_insertion = True
+                    log.info(
+                        "Option '%s' (%s) → matché par désignation dans OPT_DYN (ligne existante)",
+                        dpgf_desig_raw,
+                        company_name,
+                    )
+                    # On n'ajoute pas d'alerte ici, c'est le comportement nominal attendu (regroupement)
+
+            # 2. Cas du Bordereau Standard (code vide) : matching par désignation TCO
+            if not found_insertion and not code and not dpgf_row.get("is_option"):
                 dpgf_desig_raw = str(dpgf_row.get("Désignation", "")).strip()
                 m_code, m_idx, m_score = _match_by_desig(dpgf_desig_raw, tco_desig_index)
                 if m_code is not None:
@@ -726,8 +782,6 @@ def merge_company_into_tco(
                     merged_df.at[m_idx, col_com] = (
                         f"{desig_note} ; {base_com}".strip(" ;") if base_com else desig_note
                     )
-                    if dpgf_row.get("is_option"):
-                        merged_df.at[m_idx, "is_option"] = True
                     matched_count += 1
                     found_insertion = True
                     log.info(

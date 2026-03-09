@@ -10,9 +10,19 @@ Centralise :
 
 from __future__ import annotations
 
+import re
 import os
 
 import pandas as pd
+
+# Regex centralisées pour la détection des options et variantes
+# Déclencheurs sur la désignation (singulier/pluriel, majuscule/minuscule)
+_RE_OPTION_DESIG = re.compile(
+    r"\b(options?|variantes?|variante\s+libre|variante\s+imposee|pse|supplément|supplémentaire|suppl\.?)\b",
+    re.I,
+)
+# Codes de type OPT, OPT1, OPT2 ou commençant par VAR
+_RE_OPTION_CODE = re.compile(r"^(OPT\d*|VAR.*|.*\.VAR|.*\.OPT)$", re.I)
 
 # Sentinel retourné par find_column_index quand la colonne n'est pas trouvée
 # et qu'aucun default_idx n'est fourni.
@@ -255,4 +265,23 @@ def classify_row(
     if has_price:
         return "article"
 
-    return "other"
+def is_option_row(code_str: str, desig_str: str) -> bool:
+    """
+    Détermine si une ligne correspond à une option ou une variante
+    en basant la détection sur le code et la désignation.
+    """
+    code = str(code_str or "").strip()
+    desig = str(desig_str or "").strip().lower()
+
+    if not code and not desig:
+        return False
+
+    # 1. Déclencheur sur la désignation
+    if _RE_OPTION_DESIG.search(desig):
+        return True
+
+    # 2. Déclencheur sur le code
+    if code and _RE_OPTION_CODE.match(code):
+        return True
+
+    return False

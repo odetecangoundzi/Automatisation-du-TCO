@@ -13,7 +13,7 @@ from decimal import Decimal
 
 import pandas as pd
 
-from core.utils import classify_row, find_column_index, open_excel_file
+from core.utils import classify_row, find_column_index, is_option_row, open_excel_file
 from logger import get_logger
 
 log = get_logger(__name__)
@@ -109,6 +109,7 @@ def parse_tco(filepath: str) -> tuple[pd.DataFrame, dict]:
 
     rows = []
     current_section_code = ""
+    is_option_zone = False
 
     # Dynamic column mapping
     idx_code = find_column_index(df_data, ["code"], 0)
@@ -147,6 +148,15 @@ def parse_tco(filepath: str) -> tuple[pd.DataFrame, dict]:
         has_price_tco = qu > Decimal("0.0") and px_u > Decimal("0.0")
         row_type = classify_row(code_str, desig_str, ent_str, has_price=has_price_tco)
 
+        # Détection de basculement en mode Option (template TCO)
+        if row_type in ("section_header", "sub_section", "other"):
+            if is_option_row(code_str, desig_str):
+                is_option_zone = True
+                log.info("Mode OPTION détecté dans le TCO : %s - %s", code_str, desig_str)
+            elif row_type == "section_header":
+                # Une nouvelle section standard arrête la zone d'option précédente
+                is_option_zone = False
+
         # Correction : les codes courts (≤2 segments, ex "02.2") restent section_header
         # même s'ils portent un prix forfaitaire direct (Qu.=1, Px_U_HT=X).
         # Sans ce correctif, classify_row les retourne "article" via has_price,
@@ -183,6 +193,7 @@ def parse_tco(filepath: str) -> tuple[pd.DataFrame, dict]:
                 "row_type": row_type,
                 "original_row": row_idx,
                 "parent_code": parent_code,
+                "is_option": is_option_zone,
             }
         )
 

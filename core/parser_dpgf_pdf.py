@@ -17,7 +17,7 @@ import pandas as pd
 
 # Import des helpers numériques depuis parser_dpgf (source unique de vérité)
 from core.parser_dpgf import KEYWORDS, _check_total_coherence, _clean_numeric, _looks_numeric
-from core.utils import classify_row
+from core.utils import classify_row, is_option_row
 from logger import get_logger
 
 log = get_logger(__name__)
@@ -435,6 +435,7 @@ def _normalize_rows(rows: list[list], alerts: list[dict]) -> pd.DataFrame:
 
     result_rows: list[dict] = []
     current_section_code = ""
+    is_option_zone = False
 
     for offset, row in enumerate(rows[header_idx + 1 :]):
         if not row:
@@ -467,6 +468,21 @@ def _normalize_rows(rows: list[list], alerts: list[dict]) -> pd.DataFrame:
 
         has_price = _looks_numeric(qu_raw) and _looks_numeric(pu_raw)
         row_type = classify_row(code_str, desig_str, "", has_price=has_price)
+
+        # Détection de basculement en mode Option
+        if row_type in ("section_header", "sub_section", "other"):
+            if is_option_row(code_str, desig_str) and not is_option_zone:
+                log.info(
+                    "Ligne %d : zone OPTION/VARIANTE détectée (PDF) (code='%s' desig='%s')",
+                    header_idx + 1 + offset + 1,
+                    code_str,
+                    desig_str,
+                )
+                is_option_zone = True
+            elif row_type == "section_header" and is_option_zone:
+                if not is_option_row(code_str, desig_str):
+                    log.info("Ligne %d : Fin de zone OPTION (PDF)", header_idx + 1 + offset + 1)
+                    is_option_zone = False
 
         if row_type == "section_header":
             current_section_code = code_str
@@ -539,6 +555,7 @@ def _normalize_rows(rows: list[list], alerts: list[dict]) -> pd.DataFrame:
                 "row_type": row_type,
                 "original_row": header_idx + 1 + offset + 1,
                 "parent_code": parent_code,
+                "is_option": is_option_zone,
             }
         )
 

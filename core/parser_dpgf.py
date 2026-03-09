@@ -14,7 +14,7 @@ from decimal import ROUND_HALF_UP, Decimal
 import pandas as pd
 
 from config import TOTAL_TOLERANCE_ABS, TOTAL_TOLERANCE_REL
-from core.utils import classify_row, find_column_index, open_excel_file
+from core.utils import classify_row, find_column_index, is_option_row, open_excel_file
 from logger import get_logger
 
 log = get_logger(__name__)
@@ -214,14 +214,6 @@ def parse_dpgf(filepath: str) -> tuple[pd.DataFrame, list[dict]]:
     current_section_code = ""
     is_option_zone = False
 
-    # Mots-clés déclencheurs du mode "Option / Variante"
-    # Vérifié sur la DÉSIGNATION (singulier ET pluriel) ou sur le CODE (pattern OPT*).
-    RE_OPTION_TRIGGER = re.compile(
-        r"\b(options?|variantes?|variante\s+libre|variante\s+imposee)\b", re.I
-    )
-    # Codes de type OPT, OPT1, OPT2 (ROLLIN) : sections option identifiées par le code
-    RE_OPT_CODE = re.compile(r"^OPT\d*$", re.I)
-
     idx_code = find_column_index(df_data, ["code", "n°", "n°.", "n° de prix", "num", "indice"], 0)
     idx_desig = find_column_index(df_data, ["désignation", "designation", "libellé", "libelle"], 1)
     idx_qu = find_column_index(df_data, ["qu.", "quantité", "qte", "qté", "qt", "quantite", "q"], 2)
@@ -265,19 +257,22 @@ def parse_dpgf(filepath: str) -> tuple[pd.DataFrame, list[dict]]:
 
         # Détection de basculement en mode Option
         # Deux déclencheurs possibles sur les lignes de type section/titre/autre :
-        #   A) Désignation contient "option(s)", "variante(s)", etc.
-        #   B) Code est de la forme OPT, OPT1, OPT2 (ex : ROLLIN TP)
+        #   A) Désignation contient "option(s)", "variante(s)", "PSE", etc. (via utils.is_option_row)
+        #   B) Code est de la forme OPT, OPT1, OPT2, ou contient .VAR (via utils.is_option_row)
         if row_type in ("section_header", "sub_section", "other"):
-            triggered_by_desig = bool(RE_OPTION_TRIGGER.search(desig_str))
-            triggered_by_code = bool(RE_OPT_CODE.match(code_str))
-            if (triggered_by_desig or triggered_by_code) and not is_option_zone:
+            if is_option_row(code_str, desig_str) and not is_option_zone:
                 log.info(
-                    "Ligne %d : zone OPTION/VARIANTE (code='%s' desig='%s')",
+                    "Ligne %d : zone OPTION/VARIANTE détectée (code='%s' desig='%s')",
                     row_idx,
                     code_str,
                     desig_str,
                 )
                 is_option_zone = True
+            elif row_type == "section_header" and is_option_zone:
+                # Vérifier si on revient sur une section standard
+                if not is_option_row(code_str, desig_str):
+                    log.info("Ligne %d : Fin de zone OPTION (retour section standard)", row_idx)
+                    is_option_zone = False
 
         if row_type == "section_header":
             current_section_code = code_str
