@@ -265,6 +265,9 @@ def classify_row(
     if has_price:
         return "article"
 
+    return "other"
+
+
 def is_option_row(code_str: str, desig_str: str) -> bool:
     """
     Détermine si une ligne correspond à une option ou une variante
