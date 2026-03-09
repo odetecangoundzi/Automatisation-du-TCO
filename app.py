@@ -246,7 +246,7 @@ def display_alerts(alerts: list[dict], title: str = "Alertes") -> None:
 
 def display_preview(df, title: str = "Aperçu") -> None:
     """Affiche un aperçu éditable du DataFrame TCO."""
-    hidden = {"Entete", "row_type", "original_row", "parent_code"}
+    hidden = {"Entete", "row_type", "original_row", "parent_code", "is_extra_line", "skip_sum", "is_added"}
     cols = [c for c in df.columns if c not in hidden]
     hidden_types = {"empty", "recap", "recap_summary", "total_line", "total_text"}
     # Masquer les lignes techniques pour l'affichage
@@ -265,7 +265,10 @@ def display_preview(df, title: str = "Aperçu") -> None:
             column_config[c] = st.column_config.NumberColumn(disabled=True)
         elif "_Qu." in c or "_Px_U_HT" in c:
             column_config[c] = st.column_config.NumberColumn(disabled=False)
-        elif pd.api.types.is_bool_dtype(display_df[c]):
+        elif pd.api.types.is_bool_dtype(display_df[c]) or (
+            display_df[c].dtype == object
+            and display_df[c].dropna().map(type).eq(bool).all()
+        ):
             column_config[c] = st.column_config.CheckboxColumn(disabled=True)
         else:
             column_config[c] = st.column_config.TextColumn(disabled=False)
