@@ -205,11 +205,38 @@ def parse_tco(filepath: str) -> tuple[pd.DataFrame, dict]:
         len(tco_df[tco_df["row_type"] == "section_header"]),
     )
 
+    # Détection des codes dupliqués dans le TCO modèle (même code, désignations différentes).
+    # Ces doublons sont légitimes (ex : "01.1.2 brique de 5" et "01.1.2 brique de 10")
+    # mais nécessitent un matching par désignation lors de la fusion DPGF.
+    dup_alerts: list[dict] = []
+    if not tco_df.empty:
+        article_rows = tco_df[tco_df["row_type"].isin(["article", "sub_section"])]
+        code_counts: dict[str, int] = {}
+        for c in article_rows["Code"]:
+            cs = str(c).strip()
+            if cs:
+                code_counts[cs] = code_counts.get(cs, 0) + 1
+        for dup_code, count in code_counts.items():
+            if count > 1:
+                log.warning("Code TCO dupliqué : %r (%d occurrences)", dup_code, count)
+                dup_alerts.append(
+                    {
+                        "type": "warning",
+                        "color": "orange",
+                        "code": dup_code,
+                        "message": (
+                            f"Code TCO dupliqué : '{dup_code}' apparaît {count} fois "
+                            f"dans le modèle — la fusion utilisera la désignation pour choisir la bonne ligne."
+                        ),
+                    }
+                )
+
     meta = {
         "project_info": project_info,
         "header_row": header_row_idx + 1,
         "sheet_name": "TCO",
         "filepath": filepath,
+        "alerts": dup_alerts,
     }
 
     return tco_df, meta

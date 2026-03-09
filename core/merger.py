@@ -630,7 +630,9 @@ def merge_company_into_tco(
         ]
 
     # PERF-1 : index TCO codes → O(1) lookup
-    tco_code_index: dict[str, int] = {}
+    # Valeur : liste d'indices pour gérer les codes dupliqués dans le modèle TCO
+    # (ex : "01.1.2 brique de 5" et "01.1.2 brique de 10" → même code, deux lignes).
+    tco_code_index: dict[str, list[int]] = {}
     recap_by_parent: dict[str, int] = {}
 
     # Itération optimisée (100x plus rapide qu'iterrows simple)
@@ -643,8 +645,7 @@ def merge_company_into_tco(
     ):
         code = _normalize_code(raw_code)
         if code and row_type not in ("empty", "recap", "recap_summary"):
-            if code not in tco_code_index:
-                tco_code_index[code] = idx
+            tco_code_index.setdefault(code, []).append(idx)
 
         if row_type == "recap":
             pc = _normalize_code(parent_c)
@@ -941,7 +942,75 @@ def merge_company_into_tco(
 
         else:
             # --- MATCHING STANDARD ---
-            idx = tco_code_index[code]
+            candidate_indices = tco_code_index[code]
+
+            if len(candidate_indices) == 1:
+                # Cas nominal : un seul candidat → comportement inchangé
+                idx = candidate_indices[0]
+            else:
+                # Cas multi-match : plusieurs lignes TCO partagent le même code.
+                # On sélectionne par similarité Jaccard sur la désignation.
+                dpgf_desig = str(dpgf_row.get("Désignation", "") or "").strip().lower()
+                w_dpgf = set(dpgf_desig.split())
+                best_idx: int | None = None
+                best_score: float = 0.0
+                for cand_idx in candidate_indices:
+                    tco_desig = str(merged_df.at[cand_idx, "Désignation"] or "").strip().lower()
+                    w_tco = set(tco_desig.split())
+                    union = w_dpgf | w_tco
+                    score = len(w_dpgf & w_tco) / len(union) if union else 0.0
+                    if score > best_score:
+                        best_score = score
+                        best_idx = cand_idx
+
+                _MULTI_MATCH_THRESHOLD = 0.50
+                if best_idx is not None and best_score >= _MULTI_MATCH_THRESHOLD:
+                    idx = best_idx
+                    log.info(
+                        "Code dupliqué '%s' → candidat sélectionné par désignation (sim. %.0f%%) (%s)",
+                        code,
+                        best_score * 100,
+                        company_name,
+                    )
+                else:
+                    # Similarité insuffisante : on n'attribue pas arbitrairement
+                    raw_str_mb = str(raw_code).strip()
+                    warn_com = (
+                        f"⚠️ Code dupliqué dans le TCO ('{code}' — {len(candidate_indices)} lignes). "
+                        f"Désignation DPGF trop différente (sim. {best_score:.0%}) "
+                        f"— article non rattaché automatiquement."
+                    )
+                    base_com_mb = str(dpgf_row.get("Commentaire", "") or "").strip()
+                    new_row_mb = _build_new_row(
+                        raw_str_mb,
+                        dpgf_row,
+                        merged_df,
+                        col_u,
+                        col_qu,
+                        col_pu,
+                        col_tot,
+                        col_com,
+                        "",
+                        int(candidate_indices[0]),
+                    )
+                    new_row_mb[col_com] = (
+                        f"{warn_com} ; {base_com_mb}".strip(" ;") if base_com_mb else warn_com
+                    )
+                    insertions.append((int(candidate_indices[0]), len(insertions), new_row_mb))
+                    matched_count += 1
+                    alerts.append(
+                        {
+                            "type": "warning",
+                            "color": "orange",
+                            "code": code,
+                            "message": (
+                                f"Code TCO dupliqué '{code}' : similarité désignation insuffisante "
+                                f"({best_score:.0%} < 50%) — inséré en ligne supplémentaire — {company_name}"
+                            ),
+                        }
+                    )
+                    continue  # passe au prochain article DPGF
+
             raw_str = str(raw_code).strip()
             base_com = str(dpgf_row.get("Commentaire", "") or "").strip()
 

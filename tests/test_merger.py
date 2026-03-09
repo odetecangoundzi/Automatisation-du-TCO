@@ -571,3 +571,133 @@ class TestUnclassifiedItems:
             (merged["Code"] == "SANS_CODE") & (merged["row_type"] == "recap")
         ]
         assert recap_sc_computed.iloc[0]["ACME_Px_Tot_HT"] == Decimal("500")
+
+
+# ---------------------------------------------------------------------------
+# TestDuplicateTcoCodes — codes dupliqués dans le modèle TCO
+# ---------------------------------------------------------------------------
+
+
+def _make_tco_dup_codes() -> pd.DataFrame:
+    """TCO avec le code '1.1' présent deux fois (désignations différentes)."""
+    return pd.DataFrame(
+        [
+            {
+                "Code": "1",
+                "Désignation": "Maçonnerie",
+                "Qu.": Decimal("0"),
+                "U": "",
+                "Px_U_HT": Decimal("0"),
+                "Px_Tot_HT": Decimal("0"),
+                "Entete": "Bd_01_Bord",
+                "row_type": "section_header",
+                "original_row": 1,
+                "parent_code": "",
+            },
+            {
+                "Code": "1.1",
+                "Désignation": "Brique de 5 cm lot standard",
+                "Qu.": Decimal("10"),
+                "U": "u",
+                "Px_U_HT": Decimal("20"),
+                "Px_Tot_HT": Decimal("200"),
+                "Entete": "Ouv_01_Art",
+                "row_type": "article",
+                "original_row": 2,
+                "parent_code": "",
+            },
+            {
+                "Code": "1.1",
+                "Désignation": "Brique de 10 cm lot renforcé",
+                "Qu.": Decimal("10"),
+                "U": "u",
+                "Px_U_HT": Decimal("30"),
+                "Px_Tot_HT": Decimal("300"),
+                "Entete": "Ouv_01_Art",
+                "row_type": "article",
+                "original_row": 3,
+                "parent_code": "",
+            },
+            {
+                "Code": "",
+                "Désignation": "Total Maçonnerie",
+                "Qu.": Decimal("0"),
+                "U": "",
+                "Px_U_HT": Decimal("0"),
+                "Px_Tot_HT": Decimal("0"),
+                "Entete": "Bord_01_Recap",
+                "row_type": "recap",
+                "original_row": 4,
+                "parent_code": "1",
+            },
+        ]
+    )
+
+
+class TestDuplicateTcoCodes:
+    def test_high_similarity_selects_correct_row(self):
+        """DPGF '1.1 Brique de 5' → doit remplir la première ligne TCO, pas la seconde."""
+        tco = _make_tco_dup_codes()
+        dpgf = pd.DataFrame(
+            [
+                {
+                    "Code": "1.1",
+                    "Désignation": "Brique de 5 cm lot standard",
+                    "Qu.": Decimal("5"),
+                    "U": "u",
+                    "Px_U_HT": Decimal("22"),
+                    "Px_Tot_HT": Decimal("110"),
+                    "Commentaire": "",
+                    "Entete": "Ouv_01_Art",
+                    "row_type": "article",
+                    "original_row": 2,
+                    "parent_code": "",
+                }
+            ]
+        )
+        merged, _ = merge_company_into_tco(tco, dpgf, "COMP")
+
+        rows_11 = merged[merged["Code"] == "1.1"]
+        assert len(rows_11) == 2
+
+        row_5 = rows_11[rows_11["Désignation"].str.contains("5 cm")].iloc[0]
+        assert row_5["COMP_Px_Tot_HT"] == Decimal("110")
+
+        row_10 = rows_11[rows_11["Désignation"].str.contains("10 cm")].iloc[0]
+        assert row_10["COMP_Px_Tot_HT"] == Decimal("0")
+
+    def test_low_similarity_creates_extra_line_with_alert(self):
+        """DPGF '1.1 Enduit de façade' (sim < 50%) → extra_line + alerte, aucune ligne TCO remplie."""
+        tco = _make_tco_dup_codes()
+        dpgf = pd.DataFrame(
+            [
+                {
+                    "Code": "1.1",
+                    "Désignation": "Enduit de façade hydrofuge",
+                    "Qu.": Decimal("5"),
+                    "U": "m2",
+                    "Px_U_HT": Decimal("15"),
+                    "Px_Tot_HT": Decimal("75"),
+                    "Commentaire": "",
+                    "Entete": "Ouv_01_Art",
+                    "row_type": "article",
+                    "original_row": 2,
+                    "parent_code": "",
+                }
+            ]
+        )
+        merged, alerts = merge_company_into_tco(tco, dpgf, "COMP2")
+
+        rows_11 = merged[merged["Code"] == "1.1"]
+        original_rows = rows_11[
+            ~rows_11.get("is_extra_line", pd.Series(False, index=rows_11.index)).fillna(False)
+        ]
+        for _, r in original_rows.iterrows():
+            assert r["COMP2_Px_Tot_HT"] == Decimal("0")
+
+        warn_alerts = [
+            a
+            for a in alerts
+            if a.get("type") == "warning" and "dupliqué" in a.get("message", "").lower()
+        ]
+        assert len(warn_alerts) >= 1
