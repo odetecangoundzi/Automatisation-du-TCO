@@ -265,7 +265,7 @@ def display_preview(df, title: str = "Aperçu") -> None:
             column_config[c] = st.column_config.NumberColumn(disabled=True)
         elif "_Qu." in c or "_Px_U_HT" in c:
             column_config[c] = st.column_config.NumberColumn(disabled=False)
-        elif display_df[c].dtype == bool or c.startswith("is_"):
+        elif pd.api.types.is_bool_dtype(display_df[c]):
             column_config[c] = st.column_config.CheckboxColumn(disabled=True)
         else:
             column_config[c] = st.column_config.TextColumn(disabled=False)
