@@ -265,7 +265,7 @@ def display_preview(df, title: str = "Aperçu") -> None:
             column_config[c] = st.column_config.NumberColumn(disabled=True)
         elif "_Qu." in c or "_Px_U_HT" in c:
             column_config[c] = st.column_config.NumberColumn(disabled=False)
-        elif pd.api.types.is_bool_dtype(display_df[c]) or (
+        elif str(display_df[c].dtype) == "bool" or (
             display_df[c].dtype == object
             and display_df[c].dropna().map(type).eq(bool).all()
         ):
