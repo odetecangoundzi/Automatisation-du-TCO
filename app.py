@@ -249,12 +249,10 @@ def display_preview(df, title: str = "Aperçu") -> None:
     hidden = {"Entete", "row_type", "original_row", "parent_code"}
     cols = [c for c in df.columns if c not in hidden]
     hidden_types = {"empty", "recap", "recap_summary", "total_line", "total_text"}
-    
     # Masquer les lignes techniques pour l'affichage
     display_df = df[~df["row_type"].isin(hidden_types)][cols]
-    
     st.write(f"**{title}** ({len(display_df)} lignes)")
-    
+
     # Configuration des colonnes éditables (Uniquement Qu, PU et Commentaire pour les entreprises)
     # Les colonnes de base (A-F) sont en lecture seule pour préserver le modèle.
     base_cols = {"Code", "Désignation", "Qu.", "U", "Px_U_HT", "Px_Tot_HT", "Commentaire"}
@@ -270,7 +268,7 @@ def display_preview(df, title: str = "Aperçu") -> None:
         else:
             column_config[c] = st.column_config.TextColumn(disabled=False)
 
-    edited_df = st.data_editor(
+    st.data_editor(
         display_df,
         use_container_width=True,
         hide_index=True,
@@ -297,8 +295,9 @@ def display_preview(df, title: str = "Aperçu") -> None:
                     for col_name, new_val in row_changes.items():
                         source_df.at[real_idx, col_name] = new_val
                         any_change = True
-                
+
                 if any_change:
+                    import pandas as pd_internal
                     # Recalculer les totaux après modification
                     compute_section_totals(source_df, "Px_Tot_HT", tva_rate=lot.get("tva_rate", TVA_DEFAULT))
                     # Recalculer pour chaque entreprise (colonne Px_Tot_HT)
@@ -309,10 +308,10 @@ def display_preview(df, title: str = "Aperçu") -> None:
                             company = col.replace("_Px_Tot_HT", "")
                             qu_col = f"{company}_Qu."
                             pu_col = f"{company}_Px_U_HT"
-                            source_df[col] = (pd.to_numeric(source_df[qu_col], errors='coerce').fillna(0) * 
-                                            pd.to_numeric(source_df[pu_col], errors='coerce').fillna(0))
+                            source_df[col] = (pd_internal.to_numeric(source_df[qu_col], errors='coerce').fillna(0) *
+                                            pd_internal.to_numeric(source_df[pu_col], errors='coerce').fillna(0))
                             compute_section_totals(source_df, col, tva_rate=lot.get("tva_rate", TVA_DEFAULT))
-                    
+
                     _active_lot_set("merged_df", source_df)
                     st.rerun()
 
@@ -689,7 +688,7 @@ if st.session_state.step >= 1:
                 try:
                     status.write("Analyse de la structure du fichier...")
                     tco_df, meta = parse_tco(path)
-                    
+
                     status.write("Recalcul des totaux par section...")
                     # Recaler les totaux de l'estimation (colonne de base)
                     tva_rate_cur = _active_lot_get("tva_rate", TVA_DEFAULT)
@@ -710,12 +709,7 @@ if st.session_state.step >= 1:
                         m = re.search(r"\b(\d{2})\b", lot_raw)
                         _active_lot_set("lot_num", m.group(1) if m else "")
 
-                    info = meta["project_info"]
-                    if info:
-                        st.info(
-                            f"📋 **Projet :** {info.get('projet', 'N/A')} — "
-                            f"**Lot :** {info.get('lot', 'N/A')}"
-                        )
+                    template_name = os.path.splitext(tco_file.name)[0]
                     status.update(label=f"✅ {template_name} chargé ({len(tco_df)} lignes)", state="complete", expanded=False)
                 except Exception as e:
                     status.update(label="❌ Erreur lors de l'import", state="error", expanded=True)
@@ -940,15 +934,14 @@ if st.session_state.step >= 2:
                                         }
                                         added_companies.append(company_name)
                                         success_count += 1
-                            except Exception as e:
-                                    status.write(f"✅ {company_name} intégré.")
-                            except Exception as e:
+                                        status.write(f"✅ {company_name} intégré.")
+                            except Exception:
                                 log.error("Erreur fusion %s", company_name, exc_info=True)
-                                status.write(f"❌ Erreur sur **{company_name}**: {e}")
-                                st.error(f"❌ Erreur sur {company_name}: {e}")
+                                status.write(f"❌ Erreur sur **{company_name}**")
+                                st.error(f"❌ Erreur sur {company_name}")
                             finally:
                                 _cleanup_file(path)
-                    
+
                     if success_count > 0:
                         status.update(label=f"✅ {success_count} entreprise(s) importée(s) avec succès.", state="complete", expanded=False)
                     else:

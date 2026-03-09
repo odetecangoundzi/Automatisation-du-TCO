@@ -1312,7 +1312,7 @@ def _check_units_consistency(df: pd.DataFrame) -> list[dict]:
         return alerts
 
     art_df = df[df["row_type"] == "article"]
-    for idx, row in art_df.iterrows():
+    for _idx, row in art_df.iterrows():
         # Collecter les unités renseignées (non vides)
         units = {}
         for col in unit_cols:
