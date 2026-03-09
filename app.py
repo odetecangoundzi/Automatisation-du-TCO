@@ -274,7 +274,7 @@ def display_preview(df, title: str = "Aperçu") -> None:
         hide_index=True,
         height=500,
         column_config=column_config,
-        key="tco_main_editor"
+        key="tco_main_editor",
     )
 
     # Analyse des changements de st.data_editor via session_state
@@ -298,8 +298,11 @@ def display_preview(df, title: str = "Aperçu") -> None:
 
                 if any_change:
                     import pandas as pd_internal
+
                     # Recalculer les totaux après modification
-                    compute_section_totals(source_df, "Px_Tot_HT", tva_rate=lot.get("tva_rate", TVA_DEFAULT))
+                    compute_section_totals(
+                        source_df, "Px_Tot_HT", tva_rate=lot.get("tva_rate", TVA_DEFAULT)
+                    )
                     # Recalculer pour chaque entreprise (colonne Px_Tot_HT)
                     for col in source_df.columns:
                         if col.endswith("_Px_Tot_HT"):
@@ -308,9 +311,14 @@ def display_preview(df, title: str = "Aperçu") -> None:
                             company = col.replace("_Px_Tot_HT", "")
                             qu_col = f"{company}_Qu."
                             pu_col = f"{company}_Px_U_HT"
-                            source_df[col] = (pd_internal.to_numeric(source_df[qu_col], errors='coerce').fillna(0) *
-                                            pd_internal.to_numeric(source_df[pu_col], errors='coerce').fillna(0))
-                            compute_section_totals(source_df, col, tva_rate=lot.get("tva_rate", TVA_DEFAULT))
+                            source_df[col] = pd_internal.to_numeric(
+                                source_df[qu_col], errors="coerce"
+                            ).fillna(0) * pd_internal.to_numeric(
+                                source_df[pu_col], errors="coerce"
+                            ).fillna(0)
+                            compute_section_totals(
+                                source_df, col, tva_rate=lot.get("tva_rate", TVA_DEFAULT)
+                            )
 
                     _active_lot_set("merged_df", source_df)
                     st.rerun()
@@ -710,7 +718,11 @@ if st.session_state.step >= 1:
                         _active_lot_set("lot_num", m.group(1) if m else "")
 
                     template_name = os.path.splitext(tco_file.name)[0]
-                    status.update(label=f"✅ {template_name} chargé ({len(tco_df)} lignes)", state="complete", expanded=False)
+                    status.update(
+                        label=f"✅ {template_name} chargé ({len(tco_df)} lignes)",
+                        state="complete",
+                        expanded=False,
+                    )
                 except Exception as e:
                     status.update(label="❌ Erreur lors de l'import", state="error", expanded=True)
                     log.error("Erreur parsing TCO", exc_info=True)
@@ -861,11 +873,15 @@ if st.session_state.step >= 2:
             if new_files:
                 success_count = 0
                 added_companies: list[str] = []
-                with st.status(f"Importation de {len(new_files)} fichier(s)...", expanded=True) as status:
+                with st.status(
+                    f"Importation de {len(new_files)} fichier(s)...", expanded=True
+                ) as status:
                     for dpgf_file in new_files:
                         filename_clean = os.path.splitext(dpgf_file.name)[0]
                         company_name = (
-                            re.sub(r"^DPGF\s+", "", filename_clean, flags=re.IGNORECASE).strip().upper()
+                            re.sub(r"^DPGF\s+", "", filename_clean, flags=re.IGNORECASE)
+                            .strip()
+                            .upper()
                         )
 
                         status.write(f"Traitement de **{company_name}**...")
@@ -943,9 +959,15 @@ if st.session_state.step >= 2:
                                 _cleanup_file(path)
 
                     if success_count > 0:
-                        status.update(label=f"✅ {success_count} entreprise(s) importée(s) avec succès.", state="complete", expanded=False)
+                        status.update(
+                            label=f"✅ {success_count} entreprise(s) importée(s) avec succès.",
+                            state="complete",
+                            expanded=False,
+                        )
                     else:
-                        status.update(label="⚠️ Aucun fichier valide n'a été importé.", state="error")
+                        status.update(
+                            label="⚠️ Aucun fichier valide n'a été importé.", state="error"
+                        )
 
                 if success_count > 0:
                     _active_lot_set("companies", companies_lot)

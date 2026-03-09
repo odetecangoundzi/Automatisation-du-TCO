@@ -8,23 +8,77 @@ from core.merger import merge_company_into_tco
 def test_option_grouping():
     # 1. Créer un DataFrame TCO de base minimal
     tco_data = [
-        {"Code": "01", "Désignation": "LOT 01", "row_type": "section_header", "parent_code": "", "is_option": False},
-        {"Code": "01.1", "Désignation": "Article 1", "row_type": "article", "parent_code": "01", "is_option": False},
-        {"Code": "01", "Désignation": "Total LOT 01", "row_type": "recap", "parent_code": "01", "is_option": False},
+        {
+            "Code": "01",
+            "Désignation": "LOT 01",
+            "row_type": "section_header",
+            "parent_code": "",
+            "is_option": False,
+        },
+        {
+            "Code": "01.1",
+            "Désignation": "Article 1",
+            "row_type": "article",
+            "parent_code": "01",
+            "is_option": False,
+        },
+        {
+            "Code": "01",
+            "Désignation": "Total LOT 01",
+            "row_type": "recap",
+            "parent_code": "01",
+            "is_option": False,
+        },
     ]
     merged_df = pd.DataFrame(tco_data)
 
     # 2. DPGF Compagnie 1 avec une option hors-bordereau + un article standard pour le match rate
     dpgf1_data = [
-        {"Code": "01.1", "Désignation": "Article 1", "Qu.": Decimal("10"), "U": "m2", "Px_U_HT": Decimal("100"), "Px_Tot_HT": Decimal("1000"), "row_type": "article", "is_option": False},
-        {"Code": "OPT1", "Désignation": "Option Peinture Salon", "Qu.": Decimal("10"), "U": "m2", "Px_U_HT": Decimal("20"), "Px_Tot_HT": Decimal("200"), "row_type": "article", "is_option": True},
+        {
+            "Code": "01.1",
+            "Désignation": "Article 1",
+            "Qu.": Decimal("10"),
+            "U": "m2",
+            "Px_U_HT": Decimal("100"),
+            "Px_Tot_HT": Decimal("1000"),
+            "row_type": "article",
+            "is_option": False,
+        },
+        {
+            "Code": "OPT1",
+            "Désignation": "Option Peinture Salon",
+            "Qu.": Decimal("10"),
+            "U": "m2",
+            "Px_U_HT": Decimal("20"),
+            "Px_Tot_HT": Decimal("200"),
+            "row_type": "article",
+            "is_option": True,
+        },
     ]
     dpgf1 = pd.DataFrame(dpgf1_data)
 
     # 3. DPGF Compagnie 2 avec la MÊME option + le même article standard
     dpgf2_data = [
-        {"Code": "01.1", "Désignation": "Article 1", "Qu.": Decimal("10"), "U": "m2", "Px_U_HT": Decimal("110"), "Px_Tot_HT": Decimal("1100"), "row_type": "article", "is_option": False},
-        {"Code": "VAR_P", "Désignation": "Option Peinture Salon", "Qu.": Decimal("10"), "U": "m2", "Px_U_HT": Decimal("25"), "Px_Tot_HT": Decimal("250"), "row_type": "article", "is_option": True},
+        {
+            "Code": "01.1",
+            "Désignation": "Article 1",
+            "Qu.": Decimal("10"),
+            "U": "m2",
+            "Px_U_HT": Decimal("110"),
+            "Px_Tot_HT": Decimal("1100"),
+            "row_type": "article",
+            "is_option": False,
+        },
+        {
+            "Code": "VAR_P",
+            "Désignation": "Option Peinture Salon",
+            "Qu.": Decimal("10"),
+            "U": "m2",
+            "Px_U_HT": Decimal("25"),
+            "Px_Tot_HT": Decimal("250"),
+            "row_type": "article",
+            "is_option": True,
+        },
     ]
     dpgf2 = pd.DataFrame(dpgf2_data)
 
@@ -40,7 +94,9 @@ def test_option_grouping():
     print("Après Compagnie B, lignes:", len(merged_df))
 
     # 6. Vérification : On doit toujours avoir UNE SEULE ligne d'article dans OPT_DYN
-    opt_articles = merged_df[(merged_df["parent_code"] == "OPT_DYN") & (merged_df["row_type"] == "article")]
+    opt_articles = merged_df[
+        (merged_df["parent_code"] == "OPT_DYN") & (merged_df["row_type"] == "article")
+    ]
     print("Nombre d'articles d'options final:", len(opt_articles))
 
     if len(opt_articles) == 1:
