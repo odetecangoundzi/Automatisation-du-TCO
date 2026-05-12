@@ -744,6 +744,18 @@ if st.session_state.step == 0:
                 "<p class='subtitle'>Solution intelligente pour la consolidation des DPGF et le remplissage du TCO.</p>",
                 unsafe_allow_html=True,
             )
+        st.markdown(
+            """
+            <div class='home-description'>
+                <strong>TCO Automator</strong> permet d'importer un DPGF vierge,
+                d'ajouter les offres des entreprises, de comparer automatiquement
+                les montants et de générer un TCO final consolidé avec un journal
+                des alertes. L'application aide à repérer les codes manquants,
+                les écarts de prix et les incohérences avant l'export Excel.
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
         _render_summary_strip(
             [
                 ("Projets sauvegardés", str(len(saved_projects))),

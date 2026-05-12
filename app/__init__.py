@@ -118,6 +118,22 @@ html, body, [class*="css"] {{
     font-size: .95rem;
     margin-bottom: 1.2rem;
 }}
+.home-description {{
+    max-width: 880px;
+    margin: 0 auto 1.15rem;
+    padding: 14px 18px;
+    border: 1px solid var(--border);
+    border-left: 4px solid var(--accent);
+    border-radius: 8px;
+    background: var(--surface);
+    color: var(--text);
+    box-shadow: 0 1px 8px var(--shadow-light);
+    font-size: .95rem;
+    line-height: 1.55;
+}}
+.home-description strong {{
+    color: var(--accent-dark);
+}}
 
 /* ── Step headers ─────────────────────────────────────── */
 .step-header {{
