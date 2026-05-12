@@ -8,10 +8,17 @@ de leur section parente.
 """
 
 import re
+import unicodedata
 from collections import defaultdict
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
+from difflib import SequenceMatcher
 
 import pandas as pd
+
+try:
+    from rapidfuzz import fuzz
+except ImportError:  # pragma: no cover - dependency declared, fallback for frozen builds
+    fuzz = None
 
 from config import TVA_DEFAULT
 from logger import get_logger
@@ -25,6 +32,28 @@ _RE_MONTANT_TTC = re.compile(r"montant\s+ttc|(?<!\w)ttc(?!\w)")
 _RE_JUNK_TOTAL = re.compile(
     r"\b(total|sous-total|montant|somme|global|net\s+a\s+payer|tva|ttc)\b", re.I
 )
+_RE_NON_WORD = re.compile(r"[^0-9a-z]+")
+_MATCH_STOPWORDS = {
+    "a",
+    "au",
+    "aux",
+    "avec",
+    "ce",
+    "ces",
+    "de",
+    "des",
+    "du",
+    "en",
+    "et",
+    "la",
+    "le",
+    "les",
+    "l",
+    "pour",
+    "sur",
+    "un",
+    "une",
+}
 
 
 # ---------------------------------------------------------------------------
@@ -168,10 +197,36 @@ def _levenshtein(a: str, b: str) -> int:
     return prev[len(b)]
 
 
+def _normalize_text_for_match(text: object) -> str:
+    """Normalise un libelle pour les scores de rapprochement."""
+    if text is None:
+        return ""
+    raw = str(text).lower()
+    raw = "".join(c for c in unicodedata.normalize("NFKD", raw) if not unicodedata.combining(c))
+    raw = _RE_NON_WORD.sub(" ", raw)
+    tokens = [tok for tok in raw.split() if tok not in _MATCH_STOPWORDS]
+    return " ".join(tokens)
+
+
+def _similarity_score(left: object, right: object) -> float:
+    """Retourne un score 0..1 robuste aux accents, abreviations et ordre des mots."""
+    left_norm = _normalize_text_for_match(left)
+    right_norm = _normalize_text_for_match(right)
+    if not left_norm or not right_norm:
+        return 0.0
+
+    if fuzz is not None:
+        token_set = fuzz.token_set_ratio(left_norm, right_norm) / 100
+        partial = fuzz.partial_ratio(left_norm, right_norm) / 100
+        return (token_set * 0.75) + (partial * 0.25)
+
+    return SequenceMatcher(None, left_norm, right_norm).ratio()
+
+
 def _match_by_desig(
     dpgf_desig: str,
     tco_desig_index: "dict[str, tuple[str, int]]",
-    threshold: float = 0.50,
+    threshold: float = 0.72,
 ) -> "tuple[str, int, float] | tuple[None, None, float]":
     """Trouve le meilleur match TCO par désignation (similarité Jaccard sur mots).
 
@@ -185,8 +240,7 @@ def _match_by_desig(
     if not dpgf_desig or not tco_desig_index:
         return None, None, 0.0
 
-    dpgf_words = set(dpgf_desig.lower().split())
-    if len(dpgf_words) < 2:
+    if len(_normalize_text_for_match(dpgf_desig).split()) < 2:
         return None, None, 0.0
 
     best_score = 0.0
@@ -194,12 +248,7 @@ def _match_by_desig(
     best_idx: int | None = None
 
     for tco_d, (code, idx) in tco_desig_index.items():
-        tco_words = set(tco_d.split())
-        if not tco_words:
-            continue
-        union = dpgf_words | tco_words
-        inter = dpgf_words & tco_words
-        score = len(inter) / len(union)
+        score = _similarity_score(dpgf_desig, tco_d)
         if score > best_score:
             best_score = score
             best_code = code
@@ -215,16 +264,46 @@ def _is_fuzzy_match(s1: str, s2: str, threshold: float = 0.85) -> bool:
     Utilisé pour regrouper les options d'entreprises différentes par libellé.
     Le seuil est plus élevé que pour le matching standard pour éviter les faux positifs.
     """
-    if not s1 or not s2:
-        return False
-    w1 = set(s1.lower().split())
-    w2 = set(s2.lower().split())
-    if not w1 or not w2:
-        return False
-    union = w1 | w2
-    inter = w1 & w2
-    score = len(inter) / len(union)
-    return score >= threshold
+    return _similarity_score(s1, s2) >= threshold
+
+
+def _trace_alert(
+    *,
+    alert_type: str,
+    color: str,
+    code: str,
+    message: str,
+    action: str,
+    company_name: str,
+    dpgf_row: dict | None = None,
+    target_code: str | None = None,
+    confidence: float | None = None,
+    category: str = "matching",
+) -> dict:
+    """Construit une alerte enrichie exploitable par la feuille Journal."""
+    source_code = ""
+    source_row = 0
+    if dpgf_row:
+        source_code = str(dpgf_row.get("Code_source") or dpgf_row.get("Code") or "").strip()
+        try:
+            source_row = int(float(dpgf_row.get("original_row") or 0))
+        except (ValueError, TypeError):
+            source_row = 0
+    alert = {
+        "type": alert_type,
+        "color": color,
+        "row": source_row,
+        "code": code,
+        "message": message,
+        "category": category,
+        "action": action,
+        "company": company_name,
+        "source_code": source_code,
+        "target_code": target_code or code,
+    }
+    if confidence is not None:
+        alert["confidence"] = round(confidence, 4)
+    return alert
 
 
 def _qc_check_dpgf_row(
@@ -1589,7 +1668,12 @@ def _compute_ht_tva_ttc_base(df: pd.DataFrame, tva_rate: float = TVA_DEFAULT) ->
         return
     # Exclure les options (is_option=True) du montant HT de base — cohérent avec
     # compute_section_totals qui fait déjà cette exclusion pour les colonnes entreprise.
-    is_option = df.get("is_option", pd.Series(False, index=df.index)).fillna(False).astype(bool)
+    if "is_option" in df.columns:
+        is_option = (
+            df["is_option"].astype(object).where(df["is_option"].notna(), False).astype(bool)
+        )
+    else:
+        is_option = pd.Series(False, index=df.index, dtype=bool)
     mask = (df["row_type"] == "recap_summary") & df["Px_Tot_HT"].notna() & ~is_option
     montant_ht = Decimal("0.0")
     for val in df.loc[mask, "Px_Tot_HT"]:

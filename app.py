@@ -29,6 +29,7 @@ import os
 import re
 import signal
 import uuid
+from collections import Counter
 from datetime import datetime
 
 import streamlit as st
@@ -232,16 +233,116 @@ def _cached_list_projects() -> list[str]:
     return list_projects()
 
 
+def _get_logo_path() -> str | None:
+    """Retourne le premier logo disponible pour l'interface."""
+    for logo_path in ("odetec_logo.png", "odetec_logo.ico", "tco.png"):
+        if os.path.exists(logo_path):
+            return logo_path
+    return None
+
+
+def _render_logo() -> None:
+    """Affiche le logo de l'application si un fichier est disponible."""
+    logo_path = _get_logo_path()
+    if logo_path:
+        st.image(logo_path, use_container_width=True)
+
+
+def _render_summary_strip(items: list[tuple[str, str]]) -> None:
+    """Affiche une rangée de petits indicateurs HTML."""
+    cards = []
+    for label, value in items:
+        cards.append(
+            "<div class='summary-card'>"
+            f"<div class='summary-label'>{html_mod.escape(label)}</div>"
+            f"<div class='summary-value'>{html_mod.escape(str(value))}</div>"
+            "</div>"
+        )
+    st.markdown(f"<div class='summary-strip'>{''.join(cards)}</div>", unsafe_allow_html=True)
+
+
+def _lot_status(lot: dict) -> tuple[str, str]:
+    """Retourne le libellé et la classe CSS du statut d'un lot."""
+    companies = lot.get("companies") or {}
+    if lot.get("merged_df") is not None and companies:
+        return "Prêt", "ready"
+    if lot.get("tco_df") is not None or companies or lot.get("comparatif_mode"):
+        return "En cours", "progress"
+    return "Vide", "empty"
+
+
+def _render_workflow_steps(current_step: int) -> None:
+    """Affiche la progression des 3 étapes principales."""
+    steps = [
+        (1, "Base", "DPGF vierge"),
+        (2, "Entreprises", "Offres reçues"),
+        (3, "Résultat", "Export Excel"),
+    ]
+    html = ["<div class='workflow-steps'>"]
+    for step_no, label, caption in steps:
+        state = "done" if current_step > step_no else "active" if current_step == step_no else ""
+        badge = "✓" if current_step > step_no else str(step_no)
+        html.append(
+            f"<div class='workflow-step {state}'>"
+            f"<span class='workflow-badge'>{badge}</span>"
+            "<span>"
+            f"<span class='workflow-label'>{html_mod.escape(label)}</span>"
+            f"<span class='workflow-caption'>{html_mod.escape(caption)}</span>"
+            "</span>"
+            "</div>"
+        )
+    html.append("</div>")
+    st.markdown("".join(html), unsafe_allow_html=True)
+
+
+def _alert_summary_html(alerts: list[dict]) -> str:
+    counts = Counter(a.get("type", "info") for a in alerts)
+    labels = [("error", "Erreur"), ("warning", "Avertissement"), ("info", "Info")]
+    chips = []
+    for key, label in labels:
+        if counts.get(key, 0):
+            chips.append(f"<span class='alert-chip {key}'>{label} : {counts[key]}</span>")
+    if not chips:
+        chips.append("<span class='alert-chip info'>Aucune anomalie</span>")
+    return f"<div class='alert-summary'>{''.join(chips)}</div>"
+
+
 def display_alerts(alerts: list[dict], title: str = "Alertes") -> None:
     """Affiche les alertes dans un expander Streamlit avec icône par sévérité."""
     if not alerts:
         st.success("✅ Aucune anomalie détectée")
         return
 
-    with st.expander(f"📋 {title} — détails", expanded=False):
-        for a in alerts:
-            icon = {"error": "🔴", "warning": "🟡", "info": "🔵"}.get(a["type"], "ℹ️")
-            st.write(f"{icon} **{a.get('code', '')}** — {a.get('message', '')}")
+    severity_meta = [
+        ("error", "Erreurs"),
+        ("warning", "Avertissements"),
+        ("info", "Informations"),
+    ]
+    has_errors = any(a.get("type") == "error" for a in alerts)
+
+    with st.expander(f"📋 {title} — {len(alerts)} alerte(s)", expanded=has_errors):
+        st.markdown(_alert_summary_html(alerts), unsafe_allow_html=True)
+        for severity, label in severity_meta:
+            group = [a for a in alerts if a.get("type") == severity]
+            if not group:
+                continue
+            st.markdown(f"**{label}**")
+            for a in group[:120]:
+                code = html_mod.escape(str(a.get("code") or a.get("target_code") or ""))
+                message = html_mod.escape(str(a.get("message", "")))
+                company = html_mod.escape(str(a.get("company", "")))
+                source = html_mod.escape(str(a.get("source_code", "")))
+                meta = " · ".join(
+                    part for part in (company, f"source {source}" if source else "") if part
+                )
+                meta_html = f"<div class='alert-meta'>{meta}</div>" if meta else ""
+                st.markdown(
+                    f"<div class='alert-row {severity}'>"
+                    f"<span class='alert-code'>{code}</span>{message}{meta_html}</div>",
+                    unsafe_allow_html=True,
+                )
+            if len(group) > 120:
+                st.caption(f"{len(group) - 120} alerte(s) supplémentaire(s) dans l'export Excel.")
 
 
 def display_preview(df, title: str = "Aperçu") -> None:
@@ -256,10 +357,42 @@ def display_preview(df, title: str = "Aperçu") -> None:
         "is_added",
     }
     cols = [c for c in df.columns if c not in hidden]
-    hidden_types = {"empty", "recap", "recap_summary", "total_line", "total_text"}
-    # Masquer les lignes techniques pour l'affichage
+    st.markdown(f"**{title}**")
+    f_col, t_col, c_col = st.columns([2.6, 1.1, 0.9])
+    with f_col:
+        filter_text = st.text_input(
+            "Filtrer l'aperçu",
+            placeholder="Filtrer par code, désignation, entreprise...",
+            key="preview_filter",
+            label_visibility="collapsed",
+        )
+    with t_col:
+        show_totals = st.toggle(
+            "Afficher les totaux",
+            value=False,
+            key="preview_show_totals",
+            help="Inclut les lignes de récapitulatif et de total dans l'aperçu.",
+        )
+
+    hidden_types = (
+        {"empty"}
+        if show_totals
+        else {"empty", "recap", "recap_summary", "total_line", "total_text"}
+    )
+    # Masquer les lignes techniques pour l'affichage courant
     display_df = df[~df["row_type"].isin(hidden_types)][cols]
-    st.write(f"**{title}** ({len(display_df)} lignes)")
+
+    if filter_text.strip():
+        needle = filter_text.strip().lower()
+        display_df = display_df[
+            display_df.apply(
+                lambda row: needle in " ".join(str(v).lower() for v in row.values),
+                axis=1,
+            )
+        ]
+
+    with c_col:
+        st.metric("Lignes", len(display_df))
 
     # Configuration des colonnes éditables (Uniquement Qu, PU et Commentaire pour les entreprises)
     # Les colonnes de base (A-F) sont en lecture seule pour préserver le modèle.
@@ -280,18 +413,21 @@ def display_preview(df, title: str = "Aperçu") -> None:
         else:
             column_config[c] = st.column_config.TextColumn(disabled=False)
 
+    editor_filter_key = _normalize_filename(filter_text)[:40] if filter_text.strip() else "ALL"
+    editor_key = f"tco_main_editor_{int(show_totals)}_{editor_filter_key}"
+
     st.data_editor(
         display_df,
         use_container_width=True,
         hide_index=True,
         height=500,
         column_config=column_config,
-        key="tco_main_editor",
+        key=editor_key,
     )
 
     # Analyse des changements de st.data_editor via session_state
-    if "tco_main_editor" in st.session_state:
-        changes = st.session_state["tco_main_editor"].get("edited_rows")
+    if editor_key in st.session_state:
+        changes = st.session_state[editor_key].get("edited_rows")
         if changes:
             # Appliquer les changements au DataFrame source (merged_df du lot actif)
             # On a besoin de mapper l'index de display_df à l'index de merged_df
@@ -355,20 +491,12 @@ def _cleanup_file(path: str) -> None:
 if st.session_state.get("active_project") is not None:
     with st.sidebar:
         # Logo
-        if os.path.exists("odetec_logo.png"):
-            with open("odetec_logo.png", "rb") as f:
-                st.image(f.read(), use_container_width=True)
+        _render_logo()
 
         # Nom du projet — bloc en haut de la sidebar
         curr_name = (st.session_state.get("active_project") or {}).get("project_name", "Sans titre")
         st.markdown(
-            f"<div style='margin-bottom: 0.5rem;'>"
-            f"<div style='"
-            f"background: linear-gradient(135deg, #2F5496, #4472C4);"
-            f"color: white; padding: 10px 14px; border-radius: 10px;"
-            f"font-weight: 700; font-size: 0.95rem; word-break: break-word;'>"
-            f"📁 {html_mod.escape(curr_name)}</div>"
-            f"</div>",
+            f"<div class='sidebar-project'>📁 {html_mod.escape(curr_name)}</div>",
             unsafe_allow_html=True,
         )
 
@@ -443,8 +571,8 @@ if st.session_state.get("active_project") is not None:
 
         st.markdown("---")
 
-        # Retour a l'accueil
-        if st.button("🏠 Retour a l'accueil", use_container_width=True, type="primary"):
+        # Retour à l'accueil
+        if st.button("🏠 Retour à l'accueil", use_container_width=True, type="primary"):
             save_project(curr_name, st.session_state)  # save before leaving
             _cached_list_projects.clear()
             st.session_state.active_project = None
@@ -501,20 +629,51 @@ st.markdown(
 def _render_project_lots_view(proj: dict) -> None:
     """Affiche la vue gestion des lots du projet actif."""
     proj_name = proj.get("project_name", "Sans titre")
-    st.markdown(f"## 📁 {html_mod.escape(proj_name)}")
-    st.markdown("---")
-
     lots = proj.get("lots", [])
+    ready_lots = sum(1 for lot in lots if _lot_status(lot)[1] == "ready")
+    companies_total = sum(len(lot.get("companies") or {}) for lot in lots)
+
+    st.markdown(
+        f"<h1 class='main-title' style='font-size: 1.9rem; text-align: left;'>"
+        f"{html_mod.escape(proj_name)}</h1>",
+        unsafe_allow_html=True,
+    )
+    _render_summary_strip(
+        [
+            ("Lots", str(len(lots))),
+            ("Lots prêts", str(ready_lots)),
+            ("Entreprises", str(companies_total)),
+        ]
+    )
+
     if lots:
-        st.write(f"**{len(lots)} lot(s) dans ce projet :**")
+        st.markdown("**Lots du projet**")
         for lot in list(lots):
-            col_lbl, col_del = st.columns([8, 1])
-            with col_lbl:
-                label = lot.get("lot_label", "Lot sans nom")
-                has_data = lot.get("tco_df") is not None
-                icon = "✅" if has_data else "📋"
+            label = lot.get("lot_label", "Lot sans nom")
+            status_label, status_class = _lot_status(lot)
+            companies_count = len(lot.get("companies") or {})
+            alerts_count = len(lot.get("all_alerts") or [])
+            has_template = lot.get("tco_df") is not None
+            meta = [
+                "Base importée" if has_template else "Base à charger",
+                f"{companies_count} entreprise(s)",
+                f"{alerts_count} alerte(s)",
+            ]
+            col_card, col_open, col_del = st.columns([7, 1.3, 0.7])
+            with col_card:
+                st.markdown(
+                    f"<div class='lot-card status-{status_class}'>"
+                    f"<div class='lot-title'>{html_mod.escape(label)}</div>"
+                    f"<div class='lot-meta'>"
+                    f"<span class='status-pill status-{status_class}'>{status_label}</span>"
+                    f"<span>{html_mod.escape(' · '.join(meta))}</span>"
+                    "</div>"
+                    "</div>",
+                    unsafe_allow_html=True,
+                )
+            with col_open:
                 if st.button(
-                    f"{icon} {html_mod.escape(label)}",
+                    "Ouvrir",
                     key=f"open_lot_{lot['lot_id']}",
                     use_container_width=True,
                 ):
@@ -534,7 +693,10 @@ def _render_project_lots_view(proj: dict) -> None:
                     st.rerun()
         st.divider()
     else:
-        st.info("Aucun lot dans ce projet. Ajoutez un premier lot ci-dessous.")
+        st.markdown(
+            "<div class='empty-state'>Aucun lot dans ce projet. Ajoutez un premier lot ci-dessous.</div>",
+            unsafe_allow_html=True,
+        )
 
     col_lot_name, col_lot_btn = st.columns([3, 1])
     with col_lot_name:
@@ -571,20 +733,24 @@ def _render_project_lots_view(proj: dict) -> None:
 if st.session_state.step == 0:
     if st.session_state.active_project is None:
         # --- Landing page ---
-        st.markdown("<div style='height: 4rem;'></div>", unsafe_allow_html=True)
+        st.markdown("<div style='height: 2rem;'></div>", unsafe_allow_html=True)
+        saved_projects = _cached_list_projects()
 
         col_logo_left, col_logo_mid, col_logo_right = st.columns([1, 2, 1])
         with col_logo_mid:
-            if os.path.exists("odetec_logo.png"):
-                with open("odetec_logo.png", "rb") as f:
-                    st.image(f.read(), use_container_width=True)
+            _render_logo()
             st.markdown(f"<h1 class='main-title'>{APP_TITLE}</h1>", unsafe_allow_html=True)
             st.markdown(
                 "<p class='subtitle'>Solution intelligente pour la consolidation des DPGF et le remplissage du TCO.</p>",
                 unsafe_allow_html=True,
             )
-
-        st.markdown("<div style='height: 2rem;'></div>", unsafe_allow_html=True)
+        _render_summary_strip(
+            [
+                ("Projets sauvegardés", str(len(saved_projects))),
+                ("Version", APP_VERSION),
+                ("Format export", "Excel"),
+            ]
+        )
 
         col1, col2 = st.columns(2)
 
@@ -602,7 +768,7 @@ if st.session_state.step == 0:
                 )
 
                 st.markdown("<div style='height: 10px;'></div>", unsafe_allow_html=True)
-                if st.button("🚀 Creer le projet", type="primary", use_container_width=True):
+                if st.button("🚀 Créer le projet", type="primary", use_container_width=True):
                     if new_proj_name:
                         st.session_state.active_project = {
                             "project_id": uuid.uuid4().hex,
@@ -623,7 +789,7 @@ if st.session_state.step == 0:
                     "<p>Reprenez un travail en cours depuis vos sauvegardes locales.</p>",
                     unsafe_allow_html=True,
                 )
-                projects = _cached_list_projects()
+                projects = saved_projects
                 if projects:
                     for p in projects:
                         rcol_name, rcol_del = st.columns([7, 1])
@@ -643,7 +809,7 @@ if st.session_state.step == 0:
                                     _cached_list_projects.clear()
                                     st.rerun()
                 else:
-                    st.caption("Aucun projet sauvegarde pour le moment.")
+                    st.caption("Aucun projet sauvegardé pour le moment.")
     else:
         # --- Vue lots du projet ---
         _render_project_lots_view(st.session_state.active_project)
@@ -666,6 +832,7 @@ if st.session_state.step > 0:
         f"| {html_mod.escape(_subtitle_hdr)}</span></h1>",
         unsafe_allow_html=True,
     )
+    _render_workflow_steps(st.session_state.step)
     st.divider()
 
 
@@ -675,7 +842,7 @@ if st.session_state.step > 0:
 
 if st.session_state.step >= 1:
     st.markdown(
-        "<div class='step-header'>📥 Etape 1 : importer le DPGF vierge</div>",
+        "<div class='step-header'>📥 Étape 1 : importer le DPGF vierge</div>",
         unsafe_allow_html=True,
     )
     st.caption(
@@ -683,7 +850,7 @@ if st.session_state.step >= 1:
     )
 
     tco_file = st.file_uploader(
-        "Charger Le DPGF Modele",
+        "Charger le DPGF modèle",
         type=_UPLOADER_TYPES,
         key="tco_upload",
         help="Fichier DPGF LOT servant de base",
@@ -780,7 +947,7 @@ if st.session_state.step >= 1:
     # Boutons de navigation — visibles quelle que soit l'étape de chargement
     if st.session_state.step == 1:
         if _active_lot_get("tco_df") is not None:
-            if st.button("➡️ Passer a l'etape suivante", type="primary"):
+            if st.button("➡️ Passer à l'étape suivante", type="primary"):
                 st.session_state.step = 2
                 st.rerun()
         else:
@@ -804,7 +971,7 @@ if st.session_state.step >= 1:
 
 if st.session_state.step >= 2:
     st.markdown(
-        "<div class='step-header'>📥 Etape 2 : charger les DPGF fournis par les entreprises</div>",
+        "<div class='step-header'>📥 Étape 2 : charger les DPGF fournis par les entreprises</div>",
         unsafe_allow_html=True,
     )
 
@@ -832,7 +999,7 @@ if st.session_state.step >= 2:
                 rebuild_merged_tco(_active_lot_get("tva_rate", TVA_DEFAULT))
                 st.session_state.pop("export_buffer", None)
                 st.session_state.upload_counter += 1
-                st.session_state._flash_msg = f"✅ Entreprise **{to_remove}** supprimee."
+                st.session_state._flash_msg = f"✅ Entreprise **{to_remove}** supprimée."
                 st.rerun()
         with col_n:
             if st.button("❌ Annuler"):
@@ -843,20 +1010,31 @@ if st.session_state.step >= 2:
     companies_lot = _active_lot_get("companies", {})
     n_companies = len(companies_lot)
     if n_companies:
-        st.write(f"**{n_companies} / {MAX_COMPANIES} entreprise(s) importee(s) :**")
+        st.write(f"**{n_companies} / {MAX_COMPANIES} entreprise(s) importée(s) :**")
         for comp_name in list(companies_lot.keys()):
             comp = companies_lot[comp_name]
             if "n_articles" not in comp:
                 comp["n_articles"] = int((comp["dpgf_df"]["row_type"] == "article").sum())
             n_art = comp["n_articles"]
             n_alrt = len(comp["parse_alerts"])
+            severity_counts = Counter(a.get("type", "info") for a in comp.get("parse_alerts", []))
+            alert_label = (
+                f"{severity_counts.get('error', 0)} erreur(s), "
+                f"{severity_counts.get('warning', 0)} avertissement(s)"
+                if n_alrt
+                else "Aucune alerte parser"
+            )
 
             col_inf, col_btn = st.columns([4, 1])
             with col_inf:
                 st.markdown(
-                    f"<div class='company-card'>🏢 <b>{html_mod.escape(comp_name)}</b> — "
-                    f"{n_art} articles, {n_alrt} alerte(s) "
-                    f"<i>({html_mod.escape(comp['filename'])})</i></div>",
+                    f"<div class='company-card'>"
+                    f"<b>🏢 {html_mod.escape(comp_name)}</b>"
+                    f"<div class='company-meta'>"
+                    f"<span>{n_art} article(s)</span>"
+                    f"<span>{html_mod.escape(alert_label)}</span>"
+                    f"<span>{html_mod.escape(comp['filename'])}</span>"
+                    f"</div></div>",
                     unsafe_allow_html=True,
                 )
             with col_btn:
@@ -994,7 +1172,7 @@ if st.session_state.step >= 2:
                     _autosave()  # Auto-sauvegarde après fusion entreprises
                     st.rerun()
 
-    if st.button("🔄 Reinitialiser ce lot"):
+    if st.button("🔄 Réinitialiser ce lot"):
         # Reinitialise uniquement le lot actif — les autres lots du projet sont preserves
         lot_cur = _get_active_lot()
         if lot_cur is not None:
@@ -1077,25 +1255,6 @@ if st.session_state.step >= 3:
             parts.append(f"🔵 {n_info} info(s)")
         st.caption("Anomalies : " + " — ".join(parts))
 
-    display_preview(merged, "TCO Final Consolide")
-
-    if all_alerts:
-        display_alerts(all_alerts, "Toutes les alertes")
-
-    col_b1, col_b2 = st.columns(2)
-    with col_b1:
-        if st.button("📁 Retour aux lots du projet"):
-            st.session_state.active_lot_id = None
-            st.session_state.step = 0
-            st.session_state.pop("export_buffer", None)
-            st.rerun()
-    with col_b2:
-        if st.button("⬅️ Retour — Modifier les entreprises"):
-            st.session_state.step = 2
-            st.session_state.export_done = False
-            st.rerun()
-
-    st.divider()
     # Nom du fichier : TCO_FINAL_<projet>_<lot>.xlsx
     _proj_raw = (st.session_state.get("active_project") or {}).get("project_name", "") or ""
     _lot_raw = tco_meta.get("project_info", {}).get("lot", "") or ""
@@ -1116,38 +1275,66 @@ if st.session_state.step >= 3:
     else:
         filename = f"TCO_FINAL_{_date_stamp}.xlsx"
 
-    # Pre-generation du buffer pour telechargement immediat
-    try:
-        if "export_buffer" not in st.session_state:
-            with st.spinner("Preparation du fichier..."):
-                # Project metadata injection removed
+    tab_preview, tab_alerts, tab_export = st.tabs(["Aperçu", "Alertes", "Export"])
+    with tab_preview:
+        display_preview(merged, "TCO final consolidé")
 
-                st.session_state.export_buffer = export_tco(
-                    merged,
-                    tco_meta,
-                    output_path=None,
-                    alerts=all_alerts,
-                    tva_rate=_active_lot_get("tva_rate", TVA_DEFAULT),
-                    comparatif_mode=_active_lot_get("comparatif_mode", False),
-                )
+    with tab_alerts:
+        display_alerts(all_alerts, "Toutes les alertes")
 
-        st.download_button(
-            label="📥 Exporter le TCO Final (.xlsx)",
-            data=st.session_state.export_buffer,
-            file_name=filename,
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            type="primary",
-            on_click=_on_export_click,
-            use_container_width=True,
+    with tab_export:
+        st.markdown(
+            f"<div class='export-panel'>"
+            f"<div class='export-filename'>Nom du fichier : "
+            f"<b>{html_mod.escape(filename)}</b></div>"
+            "</div>",
+            unsafe_allow_html=True,
         )
+        # Pre-generation du buffer pour telechargement immediat
+        try:
+            if "export_buffer" not in st.session_state:
+                with st.spinner("Préparation du fichier..."):
+                    # Project metadata injection removed
 
-        if st.session_state.get("export_done"):
-            st.success("✅ Telechargement OK")
-            log.info("Export telecharge : %s", filename)
+                    st.session_state.export_buffer = export_tco(
+                        merged,
+                        tco_meta,
+                        output_path=None,
+                        alerts=all_alerts,
+                        tva_rate=_active_lot_get("tva_rate", TVA_DEFAULT),
+                        comparatif_mode=_active_lot_get("comparatif_mode", False),
+                    )
 
-    except Exception as e:
-        log.error("Erreur preparation export", exc_info=True)
-        st.error(f"❌ Erreur de generation : {e}")
+            st.download_button(
+                label="📥 Exporter le TCO Final (.xlsx)",
+                data=st.session_state.export_buffer,
+                file_name=filename,
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                type="primary",
+                on_click=_on_export_click,
+                use_container_width=True,
+            )
+
+            if st.session_state.get("export_done"):
+                st.success("✅ Téléchargement OK")
+                log.info("Export téléchargé : %s", filename)
+
+        except Exception as e:
+            log.error("Erreur preparation export", exc_info=True)
+            st.error(f"❌ Erreur de génération : {e}")
+
+    col_b1, col_b2 = st.columns(2)
+    with col_b1:
+        if st.button("📁 Retour aux lots du projet"):
+            st.session_state.active_lot_id = None
+            st.session_state.step = 0
+            st.session_state.pop("export_buffer", None)
+            st.rerun()
+    with col_b2:
+        if st.button("⬅️ Retour — Modifier les entreprises"):
+            st.session_state.step = 2
+            st.session_state.export_done = False
+            st.rerun()
 
 st.divider()
 st.caption(f"{APP_TITLE} v{APP_VERSION} — Export du TCO")

@@ -1,6 +1,6 @@
 # -*- mode: python ; coding: utf-8 -*-
 """
-TCO_Automator.spec — Spec PyInstaller pour TCO Automator v2.2
+TCO_Automator.spec — Spec PyInstaller pour TCO Automator v2.3
 Build : pyinstaller TCO_Automator.spec --clean
 """
 
@@ -113,7 +113,7 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon='tco.png' if os.path.exists('tco.png') else None,
+    icon='odetec_logo.ico' if os.path.exists('odetec_logo.ico') else ('odetec_logo.png' if os.path.exists('odetec_logo.png') else None),
 )
 
 coll = COLLECT(

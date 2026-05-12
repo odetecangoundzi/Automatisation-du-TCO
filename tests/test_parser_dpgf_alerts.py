@@ -163,8 +163,9 @@ class TestTextInNumericFields:
         info_alerts = [a for a in alerts if a["type"] == "info" and a["color"] == "blue"]
         assert len(info_alerts) >= 1
         row = df[df["Code"] == "1.1.1.1"].iloc[0]
-        # "nc" est matchée avant "inclus" car c'est un substring de "INCLUS"
+        # "inclus" doit être reconnu comme mot-clé entier, sans faux positif "nc".
         assert row["Commentaire"] != ""
+        assert "inclus" in row["Commentaire"]
 
 
 # ---------------------------------------------------------------------------

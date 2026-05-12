@@ -7,6 +7,8 @@ Aucune dépendance Streamlit — tout est pur Python.
 
 from __future__ import annotations
 
+import pandas as pd
+
 from app.controllers import normalize_filename, rebuild_merged_tco, validate_company_name
 from config import COMPANY_NAME_MAX_LEN
 
@@ -232,6 +234,46 @@ class TestRebuildMergedTCO:
         companies_in_alerts = {a.get("company") for a in new_alerts}
         assert "BETA" in companies_in_alerts
         assert "ACME" not in companies_in_alerts
+
+    def test_incremental_passes_parse_alerts_to_merger(self, minimal_tco_df, minimal_dpgf_df):
+        """Le chemin incremental conserve les controles issus du parser."""
+        total_row = {
+            "Code": "",
+            "Désignation": "Montant HT",
+            "Qu.": 0,
+            "U": "",
+            "Px_U_HT": 0,
+            "Px_Tot_HT": 0,
+            "Entete": "LignesTot_01_HT",
+            "row_type": "total_line",
+            "original_row": 5,
+            "parent_code": "",
+        }
+        tco = pd.concat([minimal_tco_df, pd.DataFrame([total_row])], ignore_index=True)
+        base_merged, _ = rebuild_merged_tco(tco, {}, 0.20)
+        company_data = {
+            "BETA": {
+                "dpgf_df": minimal_dpgf_df,
+                "parse_alerts": [
+                    {
+                        "type": "info_ht",
+                        "value": 1000.0,
+                        "message": "Montant HT declare extrait",
+                    }
+                ],
+                "filename": "beta.xlsx",
+            }
+        }
+
+        _, new_alerts = rebuild_merged_tco(
+            tco,
+            company_data,
+            0.20,
+            merged_df=base_merged,
+            new_companies=["BETA"],
+        )
+
+        assert any("Montant HT" in a.get("message", "") for a in new_alerts)
 
     def test_incremental_without_merged_df_falls_back_to_full(
         self, minimal_tco_df, minimal_dpgf_df

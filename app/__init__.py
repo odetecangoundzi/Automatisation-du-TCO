@@ -21,6 +21,13 @@ def get_theme_vars(is_dark: bool) -> str:
         --accent:       #5b9bd5;
         --accent-deep:  #4472C4;
         --accent-dark:  #2F5496;
+        --success:      #4ade80;
+        --success-bg:   rgba(74, 222, 128, 0.12);
+        --warning:      #f59e0b;
+        --warning-bg:   rgba(245, 158, 11, 0.14);
+        --danger:       #ef4444;
+        --danger-bg:    rgba(239, 68, 68, 0.13);
+        --info-bg:      rgba(91, 155, 213, 0.14);
         --shadow:       rgba(0,0,0,0.35);
         --shadow-light: rgba(0,0,0,0.18);
         --card-bg:      linear-gradient(145deg, #1a1f2e 0%, #232940 100%);
@@ -47,6 +54,13 @@ def get_theme_vars(is_dark: bool) -> str:
         --accent:       #4472C4;
         --accent-deep:  #2F5496;
         --accent-dark:  #1a3a6e;
+        --success:      #198754;
+        --success-bg:   #eaf7ef;
+        --warning:      #b7791f;
+        --warning-bg:   #fff7e6;
+        --danger:       #c2410c;
+        --danger-bg:    #fff1ed;
+        --info-bg:      #edf5ff;
         --shadow:       rgba(47,84,150,0.25);
         --shadow-light: rgba(0,0,0,0.04);
         --card-bg:      linear-gradient(145deg, #ffffff 0%, #f4f7fb 100%);
@@ -71,24 +85,32 @@ def get_full_css(is_dark: bool, hide_sidebar: bool = False) -> str:
 
     css = f"""
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
-
 {theme_vars}
 
 /* ── Global ───────────────────────────────────────────── */
-html, body, [class*="css"] {{ font-family: 'Inter', sans-serif; }}
-.block-container {{ max-width: 1200px; padding-top: 2rem; }}
+html, body, [class*="css"] {{
+    font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}}
+.block-container {{ max-width: 1320px; padding-top: 1.4rem; padding-bottom: 2rem; }}
+
+.app-shell {{
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 14px 18px;
+    background: var(--surface);
+    box-shadow: 0 1px 8px var(--shadow-light);
+}}
 
 /* ── Title ────────────────────────────────────────────── */
 .main-title {{
     text-align: center;
-    font-size: 2.4rem;
+    font-size: 2.35rem;
     font-weight: 700;
     background: linear-gradient(135deg, var(--accent-dark) 0%, var(--accent) 60%, #6ca0dc 100%);
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
     margin-bottom: .2rem;
-    letter-spacing: -.5px;
+    letter-spacing: 0;
 }}
 .subtitle {{
     text-align: center;
@@ -99,15 +121,75 @@ html, body, [class*="css"] {{ font-family: 'Inter', sans-serif; }}
 
 /* ── Step headers ─────────────────────────────────────── */
 .step-header {{
-    background: linear-gradient(135deg, var(--accent-dark) 0%, var(--accent-deep) 50%, var(--accent) 100%);
+    background: linear-gradient(135deg, var(--accent-dark) 0%, var(--accent-deep) 68%, var(--success) 160%);
     color: white;
-    padding: 14px 24px;
-    border-radius: 10px;
+    padding: 14px 18px;
+    border-radius: 8px;
     margin: 1.5rem 0 .8rem;
     font-size: 1.05rem;
     font-weight: 600;
-    letter-spacing: .3px;
+    letter-spacing: 0;
     box-shadow: 0 4px 15px var(--shadow);
+}}
+.workflow-steps {{
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+    margin: .3rem 0 1.2rem;
+}}
+.workflow-step {{
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-height: 48px;
+    padding: 10px 12px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--surface);
+    color: var(--text-muted);
+}}
+.workflow-step.done {{
+    border-color: rgba(25, 135, 84, .42);
+    background: var(--success-bg);
+    color: var(--text);
+}}
+.workflow-step.active {{
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px rgba(68, 114, 196, .14);
+    color: var(--text);
+}}
+.workflow-badge {{
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    font-weight: 700;
+    font-size: .78rem;
+    background: var(--surface-alt);
+    color: var(--text-muted);
+    flex: 0 0 auto;
+}}
+.workflow-step.done .workflow-badge {{
+    background: var(--success);
+    color: white;
+}}
+.workflow-step.active .workflow-badge {{
+    background: var(--accent-deep);
+    color: white;
+}}
+.workflow-label {{
+    display: block;
+    font-size: .86rem;
+    font-weight: 700;
+    line-height: 1.15;
+}}
+.workflow-caption {{
+    display: block;
+    font-size: .74rem;
+    color: var(--text-muted);
+    margin-top: 2px;
 }}
 
 /* ── Company cards ────────────────────────────────────── */
@@ -115,7 +197,7 @@ html, body, [class*="css"] {{ font-family: 'Inter', sans-serif; }}
     background: var(--card-bg);
     border: 1px solid var(--border);
     border-left: 4px solid var(--accent);
-    border-radius: 10px;
+    border-radius: 8px;
     padding: 12px 18px;
     margin: 6px 0;
     transition: all .2s ease;
@@ -126,6 +208,88 @@ html, body, [class*="css"] {{ font-family: 'Inter', sans-serif; }}
     transform: translateY(-1px);
     box-shadow: 0 4px 12px var(--shadow);
     border-left-color: var(--accent-dark);
+}}
+.company-meta {{
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 6px;
+    color: var(--text-muted);
+    font-size: .82rem;
+}}
+.status-pill {{
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    border-radius: 999px;
+    padding: 3px 9px;
+    font-size: .76rem;
+    font-weight: 700;
+    border: 1px solid transparent;
+}}
+.status-ready {{ color: var(--success); background: var(--success-bg); border-color: rgba(25, 135, 84, .24); }}
+.status-progress {{ color: var(--accent-dark); background: var(--info-bg); border-color: rgba(68, 114, 196, .24); }}
+.status-empty {{ color: var(--text-muted); background: var(--surface-alt); border-color: var(--border); }}
+
+/* ── Lots / project dashboard ─────────────────────────── */
+.summary-strip {{
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 10px;
+    margin: 1rem 0 1.2rem;
+}}
+.summary-card {{
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--surface);
+    padding: 12px 14px;
+    box-shadow: 0 1px 6px var(--shadow-light);
+}}
+.summary-label {{
+    color: var(--text-muted);
+    font-size: .76rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: .06em;
+}}
+.summary-value {{
+    color: var(--text);
+    font-size: 1.35rem;
+    font-weight: 800;
+    line-height: 1.2;
+    margin-top: 2px;
+}}
+.lot-card {{
+    border: 1px solid var(--border);
+    border-left: 4px solid var(--text-muted);
+    border-radius: 8px;
+    background: var(--surface);
+    padding: 11px 14px;
+    margin-bottom: 8px;
+    color: var(--text);
+}}
+.lot-card.status-ready {{ border-left-color: var(--success); }}
+.lot-card.status-progress {{ border-left-color: var(--accent); }}
+.lot-card.status-empty {{ border-left-color: var(--text-muted); }}
+.lot-title {{
+    font-weight: 800;
+    line-height: 1.25;
+    overflow-wrap: anywhere;
+}}
+.lot-meta {{
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 6px;
+    color: var(--text-muted);
+    font-size: .8rem;
+}}
+.empty-state {{
+    border: 1px dashed var(--border);
+    border-radius: 8px;
+    padding: 16px;
+    background: var(--surface-alt);
+    color: var(--text-muted);
 }}
 
 /* ── Buttons ──────────────────────────────────────────── */
@@ -164,6 +328,18 @@ html, body, [class*="css"] {{ font-family: 'Inter', sans-serif; }}
 /* ── Sidebar ───────────────────────────────────────────── */
 [data-testid="stSidebar"] {{
     border-right: 1px solid var(--border);
+}}
+.sidebar-project {{
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-left: 4px solid var(--accent);
+    color: var(--text);
+    padding: 10px 12px;
+    border-radius: 8px;
+    font-weight: 800;
+    font-size: .94rem;
+    overflow-wrap: anywhere;
+    margin-bottom: .65rem;
 }}
 [data-testid="stSidebar"] .stMarkdown h3 {{
     font-size: 0.9rem !important;
@@ -210,7 +386,7 @@ html, body, [class*="css"] {{ font-family: 'Inter', sans-serif; }}
 [data-testid="stMetric"] {{
     background: var(--metric-bg);
     border: 1px solid var(--border);
-    border-radius: 10px;
+    border-radius: 8px;
     padding: 12px 16px;
     box-shadow: 0 1px 6px var(--shadow-light);
 }}
@@ -226,11 +402,48 @@ html, body, [class*="css"] {{ font-family: 'Inter', sans-serif; }}
 }}
 .legend-item {{ display: flex; align-items: center; gap: .4rem; font-size: .82rem; color: var(--legend-text); }}
 .color-dot   {{ width: 12px; height: 12px; border-radius: 50%; display: inline-block; box-shadow: inset 0 -1px 2px rgba(0,0,0,.1); }}
+.alert-summary {{
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin: .4rem 0 .9rem;
+}}
+.alert-chip {{
+    border-radius: 999px;
+    padding: 4px 10px;
+    font-size: .8rem;
+    font-weight: 700;
+    border: 1px solid var(--border);
+}}
+.alert-chip.error {{ background: var(--danger-bg); color: var(--danger); }}
+.alert-chip.warning {{ background: var(--warning-bg); color: var(--warning); }}
+.alert-chip.info {{ background: var(--info-bg); color: var(--accent-dark); }}
+.alert-row {{
+    border: 1px solid var(--border);
+    border-left: 4px solid var(--accent);
+    border-radius: 8px;
+    padding: 9px 12px;
+    margin: 7px 0;
+    background: var(--surface);
+    color: var(--text);
+}}
+.alert-row.error {{ border-left-color: var(--danger); background: var(--danger-bg); }}
+.alert-row.warning {{ border-left-color: var(--warning); background: var(--warning-bg); }}
+.alert-row.info {{ border-left-color: var(--accent); background: var(--info-bg); }}
+.alert-code {{
+    font-weight: 800;
+    margin-right: 6px;
+}}
+.alert-meta {{
+    color: var(--text-muted);
+    font-size: .78rem;
+    margin-top: 3px;
+}}
 
 /* ── File uploader ────────────────────────────────────── */
 [data-testid="stFileUploader"] {{
     border: 2px dashed var(--border);
-    border-radius: 10px;
+    border-radius: 8px;
     padding: 12px;
     transition: border-color .2s, box-shadow .2s, background .2s, transform .2s;
 }}
@@ -303,6 +516,36 @@ html, body, [class*="css"] {{ font-family: 'Inter', sans-serif; }}
 [data-testid="stDataFrame"] {{
     border-radius: 8px;
     border: 1px solid var(--border);
+}}
+.preview-toolbar {{
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 12px;
+    background: var(--surface);
+    margin-bottom: 10px;
+}}
+.export-panel {{
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--surface);
+    padding: 16px;
+    box-shadow: 0 1px 8px var(--shadow-light);
+}}
+.export-filename {{
+    color: var(--text-muted);
+    font-size: .86rem;
+    overflow-wrap: anywhere;
+    margin-bottom: 10px;
+}}
+
+@media (max-width: 760px) {{
+    .workflow-steps,
+    .summary-strip {{
+        grid-template-columns: 1fr;
+    }}
+    .main-title {{
+        font-size: 1.9rem;
+    }}
 }}
 
 /* ── Divider ──────────────────────────────────────────── */

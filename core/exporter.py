@@ -301,6 +301,69 @@ def _auto_width(ws, min_width: int = 8, max_width: int = 40) -> None:
         ws.column_dimensions[col_letter].width = max_len
 
 
+_JOURNAL_HEADERS = [
+    "Entreprise",
+    "Severite",
+    "Categorie",
+    "Action",
+    "Code source",
+    "Code retenu",
+    "Ligne source",
+    "Confiance",
+    "Message",
+]
+
+
+def _alert_journal_row(alert: dict) -> list:
+    """Convertit une alerte en ligne lisible dans la feuille Journal."""
+    confidence = alert.get("confidence", "")
+    if isinstance(confidence, (int, float)):
+        confidence = f"{confidence:.0%}" if confidence <= 1 else f"{confidence:.0f}%"
+    return [
+        alert.get("company", ""),
+        alert.get("type", ""),
+        alert.get("category", ""),
+        alert.get("action", ""),
+        alert.get("source_code", ""),
+        alert.get("target_code") or alert.get("code", ""),
+        alert.get("row", ""),
+        confidence,
+        alert.get("message", ""),
+    ]
+
+
+def _add_journal_sheet(wb, alerts: list[dict]) -> None:
+    """Ajoute une feuille de tracabilite des alertes et decisions d'import."""
+    ws = wb.create_sheet("Journal")
+    ws.sheet_properties.tabColor = "808080"
+
+    for col_idx, header in enumerate(_JOURNAL_HEADERS, 1):
+        cell = ws.cell(row=1, column=col_idx, value=header)
+        cell.font = FONT_HEADER
+        cell.fill = FILL_HEADER
+        cell.alignment = Alignment(horizontal="center", vertical="center")
+        cell.border = THIN_BORDER
+
+    if alerts:
+        for row_idx, alert in enumerate(alerts, 2):
+            for col_idx, value in enumerate(_alert_journal_row(alert), 1):
+                cell = ws.cell(row=row_idx, column=col_idx, value=value)
+                cell.font = FONT_DATA
+                cell.border = THIN_BORDER
+                cell.alignment = Alignment(vertical="top", wrap_text=(col_idx == 9))
+                fill = _get_alert_fill(alert.get("color", ""))
+                if fill:
+                    cell.fill = fill
+    else:
+        ws.cell(row=2, column=1, value="Aucune alerte detectee.")
+        ws.cell(row=2, column=1).font = FONT_DATA
+
+    widths = [22, 12, 16, 24, 16, 16, 12, 12, 90]
+    for col_idx, width in enumerate(widths, 1):
+        ws.column_dimensions[get_column_letter(col_idx)].width = width
+    ws.freeze_panes = "A2"
+
+
 def _get_alert_fill(color: str) -> PatternFill | None:
     return {"red": FILL_ERROR, "orange": FILL_WARNING, "yellow": FILL_NOTE, "blue": FILL_INFO}.get(
         color
@@ -1255,6 +1318,8 @@ def export_tco(
     prevent_text_overflow(
         ws, min_row=header_row_2 + 1, max_col=max_col
     )  # fill blanc sur cellules vides
+
+    _add_journal_sheet(wb, alerts)
 
     log.info("Workbook prêt. Output_path=%s", output_path)
 

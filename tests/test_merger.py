@@ -689,9 +689,16 @@ class TestDuplicateTcoCodes:
         merged, alerts = merge_company_into_tco(tco, dpgf, "COMP2")
 
         rows_11 = merged[merged["Code"] == "1.1"]
-        original_rows = rows_11[
-            ~rows_11.get("is_extra_line", pd.Series(False, index=rows_11.index)).fillna(False)
-        ]
+        if "is_extra_line" in rows_11.columns:
+            is_extra_line = (
+                rows_11["is_extra_line"]
+                .astype(object)
+                .where(rows_11["is_extra_line"].notna(), False)
+                .astype(bool)
+            )
+        else:
+            is_extra_line = pd.Series(False, index=rows_11.index, dtype=bool)
+        original_rows = rows_11[~is_extra_line]
         for _, r in original_rows.iterrows():
             assert r["COMP2_Px_Tot_HT"] == Decimal("0")
 

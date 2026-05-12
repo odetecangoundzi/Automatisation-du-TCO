@@ -100,6 +100,30 @@ class TestExportTCO:
         result = export_tco(merged_df_one_company, meta={}, alerts=alerts)
         assert result is not None
 
+    def test_export_creates_journal_sheet(self, merged_df_one_company):
+        """L'export contient une feuille Journal listant les anomalies."""
+        alerts = [
+            {
+                "type": "warning",
+                "color": "orange",
+                "row": 7,
+                "code": "1.1",
+                "message": "controle test",
+                "company": "ACME",
+                "action": "match_by_designation",
+                "confidence": 0.83,
+            }
+        ]
+        buf = export_tco(merged_df_one_company, meta={}, alerts=alerts)
+        buf.seek(0)
+        wb = openpyxl.load_workbook(buf)
+        assert "Journal" in wb.sheetnames
+        ws = wb["Journal"]
+        assert ws.cell(row=1, column=9).value == "Message"
+        assert ws.cell(row=2, column=1).value == "ACME"
+        assert ws.cell(row=2, column=8).value == "83%"
+        assert ws.cell(row=2, column=9).value == "controle test"
+
     def test_export_empty_df_no_crash(self):
         """DataFrame vide → pas d'exception (résilience)."""
         try:

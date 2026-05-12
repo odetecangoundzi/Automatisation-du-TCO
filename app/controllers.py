@@ -90,7 +90,11 @@ def rebuild_merged_tco(
         for comp_name in new_companies:
             comp = company_data[comp_name]
             merged, merge_alerts = merge_company_into_tco(
-                merged, comp["dpgf_df"], comp_name, tva_rate=tva_rate
+                merged,
+                comp["dpgf_df"],
+                comp_name,
+                tva_rate=tva_rate,
+                parse_alerts=comp.get("parse_alerts", []),
             )
             for alert in comp.get("parse_alerts", []):
                 alert["company"] = comp_name

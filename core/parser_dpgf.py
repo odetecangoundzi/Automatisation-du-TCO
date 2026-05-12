@@ -27,22 +27,34 @@ log = get_logger(__name__)
 KEYWORDS = {
     "sans objet": "so",
     "compris": "compris",
-    "nc": "nc",
     "p-m": "pm",
     "inclus": "inclus",
     "néant": "néant",
     "so": "so",
+    "nc": "nc",
     "pm": "pm",
 }
 
 # Regex pré-compilées pour _clean_numeric() — appelée pour chaque cellule numérique
 _RE_NUMBER = re.compile(r"-?\d+(?:\.\d+)?")
 _RE_LEADING_PUNCT = re.compile(r"^[.\-:]+")
+_KEYWORD_PATTERNS = [
+    (re.compile(rf"(?<!\w){re.escape(keyword)}(?!\w)", re.I), abbrev)
+    for keyword, abbrev in sorted(KEYWORDS.items(), key=lambda item: len(item[0]), reverse=True)
+]
 
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+def _match_keyword(text: str) -> str | None:
+    """Retourne l'abreviation du mot-cle metier detecte, sans matcher les sous-chaines."""
+    for pattern, abbrev in _KEYWORD_PATTERNS:
+        if pattern.search(text):
+            return abbrev
+    return None
 
 
 def _looks_numeric(val: object) -> bool:
@@ -58,7 +70,7 @@ def _looks_numeric(val: object) -> bool:
         return False
     # Mots-clés textuels (SANS OBJET, P-M...) ne sont pas des prix
     s_lower = s.lower()
-    if any(kw in s_lower for kw in KEYWORDS):
+    if _match_keyword(s_lower):
         return False
     cleaned = s.replace(" ", "").replace(" ", "").replace(",", ".")
     try:
@@ -88,9 +100,9 @@ def _clean_numeric(value: int | float | str | None) -> tuple[Decimal, str]:
         text = text[:500]
 
     text_lower = text.lower().strip()
-    for keyword, abbrev in KEYWORDS.items():
-        if keyword in text_lower:
-            return Decimal("0.0"), abbrev
+    keyword_match = _match_keyword(text_lower)
+    if keyword_match:
+        return Decimal("0.0"), keyword_match
 
     cleaned = text.replace(" ", "").replace("\u00a0", "").replace(",", ".")
 

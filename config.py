@@ -78,7 +78,7 @@ LOG_LEVEL = "INFO"  # DEBUG | INFO | WARNING | ERROR
 # ---------------------------------------------------------------------------
 
 APP_TITLE = "Export du TCO"
-APP_VERSION = "2.2.0"
+APP_VERSION = "2.3.0"
 APP_ICON = "📊"
 
 # Mode administrateur — active les commandes sensibles (arrêt serveur, etc.)
